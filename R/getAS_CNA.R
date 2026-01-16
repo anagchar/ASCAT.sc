@@ -327,22 +327,87 @@ getAS_CNA <- function(res,
     # ADD THIS LINE AT THE VERY START
     print(">>> USING FIXED VERSION OF run_sc_sequencing (2026-01-11) <<<")
     print("## derive Allele-specific Profiles")
+        # DIAGNOSTIC: Check inputs before running
+    cat("\n=== PRE-RUN DIAGNOSTICS ===\n")
+    cat("Number of cells:", length(res$allTracks.processed), "\n")
+    cat("Number of ac_counts_paths lists:", length(list_ac_counts_paths), "\n")
+    cat("Number of purs:", length(purs), "\n")
+    cat("Number of ploidies:", length(ploidies), "\n")
+    
+    # Check first few cells have valid solutions
+    for(i in 1:min(3, length(res$allTracks.processed))) {
+        cat("\nCell", i, ":\n")
+        cat("  - allSolutions exists:", !is.null(res$allSolutions[[i]]), "\n")
+        cat("  - allProfiles exists:", !is.null(res$allProfiles[[i]]), "\n")
+        if(!is.null(res$allSolutions[[i]])) {
+            cat("  - purity:", res$allSolutions[[i]]$purity, "\n")
+            cat("  - ploidy:", res$allSolutions[[i]]$ploidy, "\n")
+        }
+        cat("  - ac_counts_paths[[", i, "]] length:", length(list_ac_counts_paths[[i]]), "\n")
+        # Check if files exist
+        if(length(list_ac_counts_paths[[i]]) > 0) {
+            cat("  - first ac file exists:", file.exists(list_ac_counts_paths[[i]][1]), "\n")
+        }
+    }
+    cat("=== END DIAGNOSTICS ===\n\n")
+
     res$allProfiles_AS <- parallel::mclapply(1:length(res$allTracks.processed), function(x)
     {
         cat(".")
-        getAS_CNA_sample(track=res$allTracks.processed[[x]],
-                         profile=res$allProfiles[[x]],
-                         ac_counts_paths=list_ac_counts_paths[[x]],
-                         phases=phases,
-                         purity=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$purity
-                                else res$allSolutions[[x]]$purity,
-                         ploidy=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$ploidy
-                                else res$allSolutions[[x]]$ploidy,
-                         purs=purs[[x]],
-                         ploidies=ploidies[[x]],
-                         path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
-                         steps=steps)
-    },mc.cores=mc.cores)
+        cat("\n>>> Processing cell", x, "/", length(res$allTracks.processed), "\n")
+        
+        # Check prerequisites
+        if(is.null(res$allSolutions[[x]])) {
+            cat("  ERROR: allSolutions[[", x, "]] is NULL\n")
+            return(NA)
+        }
+        if(is.null(res$allProfiles[[x]])) {
+            cat("  ERROR: allProfiles[[", x, "]] is NULL\n")
+            return(NA)
+        }
+        
+        purity_val <- if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$purity else res$allSolutions[[x]]$purity
+        ploidy_val <- if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$ploidy else res$allSolutions[[x]]$ploidy
+        
+        cat("  purity:", purity_val, "ploidy:", ploidy_val, "\n")
+        
+        if(is.null(purity_val) || is.null(ploidy_val)) {
+            cat("  ERROR: purity or ploidy is NULL\n")
+            return(NA)
+        }
+        result <- tryCatch({
+            getAS_CNA_sample(track=res$allTracks.processed[[x]],
+                             profile=res$allProfiles[[x]],
+                             ac_counts_paths=list_ac_counts_paths[[x]],
+                             phases=phases,
+                             purity=purity_val,
+                             ploidy=ploidy_val,
+                             purs=purs[[x]],
+                             ploidies=ploidies[[x]],
+                             path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
+                             steps=steps)
+        }, error = function(e) {
+            cat("  ERROR in getAS_CNA_sample:", conditionMessage(e), "\n")
+            return(NA)
+        })
+        
+        # Validate result
+        if(!is.list(result) || !"nprof.fixed" %in% names(result)) {
+            cat("  ERROR: Result invalid - class:", class(result), "\n")
+            if(is.list(result)) cat("  Result names:", paste(names(result), collapse=", "), "\n")
+            return(NA)
+        }
+        
+        cat("  SUCCESS\n")
+        result
+    })
+    
+    # POST-RUN: Summary of results
+    cat("\n=== POST-RUN SUMMARY ===\n")
+    valid <- sapply(res$allProfiles_AS, function(x) is.list(x) && "nprof.fixed" %in% names(x))
+    cat("Successful:", sum(valid), "/", length(valid), "\n")
+    cat("Failed cells:", which(!valid), "\n")
+    cat("=== END SUMMARY ===\n\n")
     print("## write to disk and plot Allele-specific Profiles")
     pdf(paste0(outdir,"/all_as_cna_profiles_",projectname,".pdf"),width=15,height=5)
     tnull <- lapply(1:length(res$allProfiles_AS), function(x)
