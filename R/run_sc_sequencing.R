@@ -246,8 +246,6 @@ run_sc_sequencing <- function(tumour_bams,
         purs <- lapply(1:length(res$allTracks.processed), function(x) purs)
         ploidies <- lapply(1:length(res$allTracks.processed), function(x) ploidies)
     }
-    # ADD THIS LINE AT THE VERY START
-    print(">>> USING FIXED VERSION OF run_sc_sequencing (2026-01-11) <<<")
     print("## fit Purity/Ploidy")
     res$timetofit <- system.time(res$allSols <- mclapply(1:length(res$allTracks.processed), function(x)
     {
