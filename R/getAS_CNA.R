@@ -324,32 +324,8 @@ getAS_CNA <- function(res,
         purs <- lapply(1:length(res$allTracks.processed), function(x) purs)
         ploidies <- lapply(1:length(res$allTracks.processed), function(x) ploidies)
     }
-    # ADD THIS LINE AT THE VERY START
-    print(">>> USING FIXED VERSION OF run_sc_sequencing (2026-01-11) <<<")
+
     print("## derive Allele-specific Profiles")
-        # DIAGNOSTIC: Check inputs before running
-    cat("\n=== PRE-RUN DIAGNOSTICS ===\n")
-    cat("Number of cells:", length(res$allTracks.processed), "\n")
-    cat("Number of ac_counts_paths lists:", length(list_ac_counts_paths), "\n")
-    cat("Number of purs:", length(purs), "\n")
-    cat("Number of ploidies:", length(ploidies), "\n")
-    
-    # Check first few cells have valid solutions
-    for(i in 1:min(3, length(res$allTracks.processed))) {
-        cat("\nCell", i, ":\n")
-        cat("  - allSolutions exists:", !is.null(res$allSolutions[[i]]), "\n")
-        cat("  - allProfiles exists:", !is.null(res$allProfiles[[i]]), "\n")
-        if(!is.null(res$allSolutions[[i]])) {
-            cat("  - purity:", res$allSolutions[[i]]$purity, "\n")
-            cat("  - ploidy:", res$allSolutions[[i]]$ploidy, "\n")
-        }
-        cat("  - ac_counts_paths[[", i, "]] length:", length(list_ac_counts_paths[[i]]), "\n")
-        # Check if files exist
-        if(length(list_ac_counts_paths[[i]]) > 0) {
-            cat("  - first ac file exists:", file.exists(list_ac_counts_paths[[i]][1]), "\n")
-        }
-    }
-    cat("=== END DIAGNOSTICS ===\n\n")
 
     res$allProfiles_AS <- parallel::mclapply(1:length(res$allTracks.processed), function(x)
     {

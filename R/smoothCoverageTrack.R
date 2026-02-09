@@ -5,6 +5,7 @@ smoothCoverageTrack <- function(lCT,
                                 method=c("loess",
                                          "lowess"))
 {
+    allRec <- unlist(lapply(lCT,function(x) log2(x$records+1)))
     if(!is.null(lNormals))
     {
         if(!"records"%in%names(lNormals[[1]]))

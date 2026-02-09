@@ -26,13 +26,13 @@ getCoverageTrack.10XBAM <- function (bamPath,
     coverageTrack <- scanBam(bamPath, param = sbp)
     .guessBarcodes <- function(cT, pcchromosome=pcchromosome)
     {
-        counts <- table(unlist(lapply(cT,function(x) unique(x[[tag[1]]]))))
+        counts <- table(unlist(lapply(cT,function(x) unique(x$tag[[tag[1]]]))))
         names(counts)[counts>length(cT)*pcchromosome]
     }
     if(is.null(barcodes)) barcodes <- .guessBarcodes(coverageTrack, pcchromosome = pcchromosome)
     .countBarcodesAndNucleotides <- function(binData, barcodesUNIQUE)
     {
-        bc <- binData[[tag[1]]]
+        bc <- binData$tag[[tag[1]]]
         qw <- binData$qwidth
         counts <- sapply(barcodesUNIQUE, function(b) sum(bc == b, na.rm=TRUE))
         nucleotides <- sapply(barcodesUNIQUE, function(b) sum(qw[bc == b], na.rm=TRUE))
