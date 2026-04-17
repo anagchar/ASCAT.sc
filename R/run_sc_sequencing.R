@@ -15,6 +15,7 @@ run_sc_sequencing <- function(tumour_bams,
                               MC.CORES=1,
                               barcodes_10x=NULL,
                               normal_bams=NULL,
+                              normal_barcodes=NULL,
                               outdir="./",
                               is_pdf=F,
                               probs_filters=.1,
@@ -117,6 +118,9 @@ run_sc_sequencing <- function(tumour_bams,
                                                      pcchromosome = pcchromosome,
                                                      mc.cores=MC.CORES)
 
+                # Skip BAM files with no detected barcodes
+                if (length(lCTS.tumour) == 0) return(NULL)
+
                 # If multiple bams, rename the tracks to include bamfile (sample)
 
                 if (length(tumour_bams) > 1) {
@@ -130,6 +134,8 @@ run_sc_sequencing <- function(tumour_bams,
                                                    window = ceiling(binsize / START_WINDOW)))
                 }, mc.cores = MC.CORES)
             }))
+            # Remove NULL entries (BAM files with no detected barcodes)
+            res$allTracks <- Filter(Negate(is.null), res$allTracks)
             # Unlist the top layer to flatten list
             res$allTracks <- unlist(res$allTracks, recursive = FALSE)
 
@@ -145,10 +151,10 @@ run_sc_sequencing <- function(tumour_bams,
             print("## get all tracks from normal bams")
             timetoread_normals <- system.time(res$lCTS.normal <- mclapply(normal_bams,function(bamfile)
             {
-                lCTS.normal <- lapply(paste0(chrstring_bam,allchr), function(chr) getCoverageTrack(bamPath=bamfile,
+                lCTS.normal <- lapply(allchr, function(chr) getCoverageTrack(bamPath=bamfile,
                                                                                                    chr=chr,
-                                                                                                   lSe[[chr]]$starts,
-                                                                                                   lSe[[chr]]$ends,
+                                                                                                   res$lSe[[chr]]$starts,
+                                                                                                   res$lSe[[chr]]$ends,
                                                                                                    mapqFilter=30))
                 list(lCTS.normal=lCTS.normal,
                      nlCTS.normal=treatTrack(lCTS=lCTS.normal,
@@ -193,6 +199,23 @@ run_sc_sequencing <- function(tumour_bams,
             names(res$allTracks) <- basename(tumour_bams)
         }
     }
+    ## Create normal reference from diploid barcodes (10X mode)
+    if(!is.null(barcodes_10x) && !is.null(normal_barcodes))
+    {
+        missing_bc <- normal_barcodes[!normal_barcodes %in% names(res$allTracks)]
+        if(length(missing_bc) > 0)
+            stop(paste0("normal_barcodes not found in allTracks: ",
+                        paste(head(missing_bc, 5), collapse=", "),
+                        if(length(missing_bc) > 5) paste0(" ... and ", length(missing_bc)-5, " more")))
+        print(paste0("## create normal reference from ", length(normal_barcodes), " diploid barcodes"))
+        res$lNormals <- lapply(normal_barcodes, function(bc) res$allTracks[[bc]]$nlCTS.tumour)
+        res$isPON <- TRUE
+        ## Force re-smoothing so the normal reference is applied
+        res$allTracks.processed <- NULL
+    }
+    ## Ensure sex has correct length for 10X barcodes on rerun
+    if(!is.null(barcodes_10x) && length(sex) != length(res$allTracks))
+        sex <- rep(sex[1], length(res$allTracks))
     if(sc_exclude_badbins)
     {
         print("## exclude Bad bins inferred from normal samples or tumour samples")

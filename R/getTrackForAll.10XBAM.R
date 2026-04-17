@@ -23,7 +23,7 @@ getTrackForAll.10XBAM <- function (bamfile,
         lSe <- lapply(allchr, function(chr) getStartsEnds(window,
                                                           paste0(chr)))
     }
-    if(is.null(barcodes) | is.na(barcodes))
+    if (is.null(barcodes) || any(is.na(barcodes)))
     {
         print("get Barcodes")
         # TODO: In the rare case that chr1 is homozygously deleted, this wont work
@@ -42,6 +42,11 @@ getTrackForAll.10XBAM <- function (bamfile,
         # If yes, should this be removed from the list of barcodes for example like below.
         # barcodes = barcodes[barcodes != "-"]
     }
+    if(length(barcodes) == 0) {
+        warning(paste0("No barcodes detected for bamfile: ", bamfile,
+                       ". Skipping this file. Consider lowering pcchromosome threshold."))
+        return(list())
+    }
     print("get Coverage Track")
     lCT <- mclapply(allchr, function(chr)
         getCoverageTrack.10XBAM(bamPath = bamfile,
@@ -55,9 +60,10 @@ getTrackForAll.10XBAM <- function (bamfile,
                                 isNotPassingQualityControls = isNotPassingQualityControls,
                                 isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter),
         mc.cores = mc.cores)
-    lCTs <- lapply(1:length(lCT[[1]][[1]]), function(cell)
+    nCells <- length(lCT[[1]][[1]])
+    lCTs <- lapply(seq_len(nCells), function(cell)
     {
-        lCTS <- lapply(1:length(allchr),
+        lCTS <- lapply(seq_len(length(allchr)),
                     function(chr) lCT[[chr]][[1]][[cell]])
         names(lCTS) <- allchr
         lCTS

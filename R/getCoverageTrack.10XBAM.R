@@ -22,7 +22,7 @@ getCoverageTrack.10XBAM <- function (bamPath,
                                         IRanges(starts,ends)),
                         mapqFilter=mapqFilter,
                         tag=tag[1],
-                        what="qwidth")
+                        what=c("qwidth"))
     coverageTrack <- scanBam(bamPath, param = sbp)
     .guessBarcodes <- function(cT, pcchromosome=pcchromosome)
     {
