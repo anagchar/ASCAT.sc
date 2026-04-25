@@ -1,6 +1,11 @@
 getAS_CNA_smoothed <- function(res,
                                mc.cores)
 {
+    normalize_llh <- function(x)
+    {
+        x[is.infinite(x) & x < 0] <- NA
+        x - max(x, na.rm=TRUE)
+    }
     fitIntegers.2D <- function(baf, ntot, iter=1, INDEX)
     {
         NNN=length(baf)
@@ -57,8 +62,19 @@ getAS_CNA_smoothed <- function(res,
         allele2 <- pmax(0,round(ntot)-allele1)
         ## ############
         combi <- unique(cbind(allele1,allele2))
-        beta.sd <- lapply(1:nrow(combi),function(x) NULL)
-        gaussian.sd <- lapply(1:nrow(combi),function(x) NULL)
+        if(nrow(combi) == 0)
+        {
+            return(list(ww              = rep(NA, NNN),
+                        baf             = BAF[1:NNN],
+                        ntot            = NTOT[1:NNN],
+                        allele1Inferred = rep(NA, NNN),
+                        allele2Inferred = rep(NA, NNN),
+                        allele1         = rep(NA, NNN),
+                        allele2         = rep(NA, NNN),
+                        AS_mode_on      = AS_mode_on))
+        }
+        beta.sd <- lapply(seq_len(nrow(combi)),function(x) NULL)
+        gaussian.sd <- lapply(seq_len(nrow(combi)),function(x) NULL)
         for(j in 1:iter)
         {
             ##cat(".")
@@ -95,6 +111,17 @@ getAS_CNA_smoothed <- function(res,
             if(j<iter)
             {
                 combi <- combi[counts>0,,drop=F]
+                if(nrow(combi) == 0)
+                {
+                    return(list(ww              = rep(NA, NNN),
+                                baf             = BAF[1:NNN],
+                                ntot            = NTOT[1:NNN],
+                                allele1Inferred = rep(NA, NNN),
+                                allele2Inferred = rep(NA, NNN),
+                                allele1         = rep(NA, NNN),
+                                allele2         = rep(NA, NNN),
+                                AS_mode_on      = AS_mode_on))
+                }
                 if(nrow(combi)==1)
                 {
                     combi <- rbind(allele1=round(median(baf)*round(median(ntot))),
@@ -137,7 +164,7 @@ getAS_CNA_smoothed <- function(res,
         allele2 <- round(NTOT)-allele1
         A1 <- tapply(1:length(BAF),WW,function(x) round(median(BAF[x],na.rm=T)*round(median(NTOT[x],na.rm=T))))
         allele1Inferred <- A1[as.character(WW)]
-        A2 <- tapply(1:length(BAF),WW,function(x) round(median(round(NTOT[x])-allele1Inferred[x],na.rm=T)))
+        A2 <- tapply(1:length(BAF),WW,function(x) round(median(round(NTOT[x])-allele1Inferred[x],na.rm=T))  )
         allele2Inferred <- A2[as.character(WW)]
         list(ww=WW[1:NNN],
              baf=BAF[1:NNN],
@@ -150,14 +177,16 @@ getAS_CNA_smoothed <- function(res,
     }
 
     lProfs <- res$allProfiles_AS
-    if(any(grepl("filters",names(res))))
+    valid_AS <- sapply(lProfs, function(x) is.list(x) && "nprof.fixed" %in% names(x))
+    if(any(valid_AS))
     {
-        nms <- names(lProfs)
-        lProfs <- lapply(which(res$filters), function(x)
-        {
-            lProfs[[x]]
-        })
-        names(lProfs) <- nms[which(res$filters)]
+        lProfs <- lapply(lProfs[valid_AS], function(x) x$nprof.fixed)
+    }
+    if(any(grepl("filters", names(res))) && !is.null(names(res$filters)))
+    {
+        keep_nms <- names(res$filters)[which(res$filters)]
+        keep_nms <- intersect(keep_nms, names(lProfs))
+        lProfs   <- lProfs[keep_nms]
     }
     alleles <- parallel::mclapply(1:nrow(lProfs[[1]]),function(index)
     {
