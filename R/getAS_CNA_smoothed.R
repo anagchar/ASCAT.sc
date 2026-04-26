@@ -13,14 +13,18 @@ getAS_CNA_smoothed <- function(res,
         ntot=c(ntot,ntot)
         assignRemainingT <- function(ntot, remaining, combi, gaussian.mean, gaussian.sd)
         {
-            print(paste0("warning: should not be here - ", min(sum(remaining),length(remaining))))
+            n_baf_na  <- sum(is.na(BAF[remaining]))
+            n_ntot_na <- sum(is.na(NTOT[remaining]))
+            print(paste0("warning: should not be here - ", length(remaining),
+                         " (BAF NAs: ", n_baf_na, ", ntot NAs: ", n_ntot_na, ")"))
             ntot <- ntot[remaining]
             pgroup <- matrix(0,length(ntot),nrow(combi))
             for(i in 1:nrow(combi))
             {
                 pgroup[,i] <- dnorm(ntot, gaussian.mean[[i]], gaussian.sd[[i]],log=T)
             }
-            apply(pgroup,1,which.max)
+            mywhich.max <- function(x) { ret <- which.max(x); if(length(ret)==0) return(NA); ret }
+            apply(pgroup,1,mywhich.max)
         }
         assignRemaining <- function(ntot, baf, remaining, combi, gaussian.mean, gaussian.sd)
         {
@@ -159,6 +163,13 @@ getAS_CNA_smoothed <- function(res,
             }
             WW[remaining] <- assRemain
         }
+        ## Assign any remaining NAs to the most frequent group so tapply never receives NA indices
+        still_na <- which(is.na(WW))
+        if(length(still_na) > 0)
+        {
+            mode_group <- as.integer(names(which.max(table(WW, useNA="no"))))
+            WW[still_na] <- mode_group
+        }
         ## ############
         allele1 <- round(BAF*round(NTOT))
         allele2 <- round(NTOT)-allele1
@@ -188,19 +199,21 @@ getAS_CNA_smoothed <- function(res,
         keep_nms <- intersect(keep_nms, names(lProfs))
         lProfs   <- lProfs[keep_nms]
     }
-    alleles <- parallel::mclapply(1:nrow(lProfs[[1]]),function(index)
+    n_bins <- max(sapply(lProfs, nrow))
+    alleles <- parallel::mclapply(1:n_bins, function(index)
     {
         cat(".")
-        baf <- sapply(lProfs,function(x) x[index,"BAF"])
-        ntot <- sapply(lProfs,function(x) x[index,"ntot_fixed"])
+        baf  <- sapply(lProfs, function(x) if(index <= nrow(x)) x[index,"BAF"]        else NA)
+        ntot <- sapply(lProfs, function(x) if(index <= nrow(x)) x[index,"ntot_fixed"] else NA)
         fitted <- fitIntegers.2D(baf, ntot, iter=100, INDEX=index)
     },mc.cores=mc.cores)
-    newlProfs <- lapply(1:length(lProfs),function(x)
+    newlProfs <- lapply(1:length(lProfs), function(x)
     {
+        n <- nrow(lProfs[[x]])
         tt <- cbind(lProfs[[x]],
-                    allele1Inferred=sapply(alleles,function(y) y$allele1Inferred[x]),
-                    allele2Inferred=sapply(alleles,function(y) y$allele2Inferred[x]),
-                    AS_mode_ON=sapply(alleles,function(y) y$AS_mode_on[1]))
+                    allele1Inferred=sapply(alleles[1:n], function(y) y$allele1Inferred[x]),
+                    allele2Inferred=sapply(alleles[1:n], function(y) y$allele2Inferred[x]),
+                    AS_mode_ON=sapply(alleles[1:n], function(y) y$AS_mode_on[1]))
     })
     names(newlProfs) <- names(lProfs)
     res$allProfiles_AS_smoothed <- newlProfs
