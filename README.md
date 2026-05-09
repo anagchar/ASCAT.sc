@@ -1,7 +1,11 @@
-# ASCAT.sc
+<p align="left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter.gif">
+    <img src="logo/ASCATsc-typewriter.gif" alt="ASCAT.sc" width="420">
+  </picture>
+</p>
 Copy number from DNA profiling techniques, including single-cell (sc),
 shallow-coverage (sc), and targeted sequencing, as well as methylation arrays
-
 
 ## Install
 
@@ -11,7 +15,7 @@ You can install from github with the following command:
 devtools::install_github("VanLoo-lab/ASCAT.sc", build_opts = c("--no-build-vignettes"))
 ```
 
-### Dependencies 
+### Dependencies
 
 Make sure to install dependencies before installing (this might take a while):
 
@@ -19,7 +23,6 @@ Make sure to install dependencies before installing (this might take a while):
 devtools::install_github("iovlaicu/copynumber")
 BiocManager::install(c("GenomicRanges", "Biostrings", "DNAcopy", "Rsamtools", "xgboost"))
 ```
-
 
 ## Examples and Usage
 
@@ -34,7 +37,6 @@ ASCAT.sc total copy-number profiles on cell lines from various sources (GDSC and
 These are accompanied by the R script to derive the profiles, as well as sample ID mapping and QC flags.
 
 **Credits to:** Philip S Smith, CRUK Cambridge Institute
-
 
 ## See also
 
