@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="logo/ASCATsc-typewriter.svg" alt="ASCAT.sc" width="420">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter-dark.gif">
+    <img src="logo/ASCATsc-typewriter.gif" alt="ASCAT.sc" width="420">
+  </picture>
 </p>
 Copy number from DNA profiling techniques, including single-cell (sc),
 shallow-coverage (sc), and targeted sequencing, as well as methylation arrays
