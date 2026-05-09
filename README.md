@@ -1,6 +1,6 @@
-<p align="left">
+<p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter.gif">
+    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter-dark.gif">
     <img src="logo/ASCATsc-typewriter.gif" alt="ASCAT.sc" width="420">
   </picture>
 </p>
