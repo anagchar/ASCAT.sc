@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter-dark.gif">
-    <img src="logo/ASCATsc-typewriter.gif" alt="ASCAT.sc" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="logo/ASCATsc-typewriter-HD-dark.gif">
+    <img src="logo/ASCATsc-typewriter-HD.gif" alt="ASCAT.sc" width="420">
   </picture>
 </p>
 Copy number from DNA profiling techniques, including single-cell (sc),
