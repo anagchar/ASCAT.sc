@@ -285,6 +285,46 @@ getAS_CNA <- function(res,
              ploidy.fixed=sG.fixed$ploidy)
         }
 
+    getBinBAF <- function(ac.ph, track, cell_name = NULL,
+                     min_snps = 2, steps = NULL) {
+        chrs <- names(track$lCTS)
+        bin_df <- do.call(rbind, lapply(chrs, function(chr) {
+            lcts <- track$lCTS[[chr]]
+            data.frame(chr = gsub("chr", "", chr),
+                    start = lcts$start, end = lcts$end,
+                    stringsAsFactors = FALSE)
+        }))
+        rownames(bin_df) <- NULL
+        bin_df$BAF <- NA_real_; bin_df$q05 <- NA_real_; bin_df$q95 <- NA_real_
+        bin_df$nSNP <- 0L
+
+        grbin <- GRanges(bin_df$chr, IRanges(bin_df$start, bin_df$end))
+        grsnp <- GRanges(gsub("chr", "", as.character(ac.ph[, 1])),
+                        IRanges(as.integer(ac.ph[, 2]),
+                                as.integer(ac.ph[, 2])))
+        ovs <- findOverlaps(grbin, grsnp) # map the SNPs to the bins
+        if (length(ovs) == 0) return(bin_df)
+
+        # bin indices and SNP indices
+        qH <- queryHits(ovs); sH <- subjectHits(ovs)
+        c1 <- as.numeric(ac.ph[sH, 3]); c2 <- as.numeric(ac.ph[sH, 4])
+        dp <- c1 + c2
+
+        for (b in unique(qH)) {
+            idx <- which(qH == b)
+            bin_df$nSNP[b] <- length(idx)
+            keep <- dp[idx] > 0
+            if (sum(keep) < min_snps) next
+            fit <- tryCatch(fitBinom.1dist(c1[idx][keep], dp[idx][keep], steps = steps),
+                            error = function(e) NULL) # run again the fitBinom.1dist to get the BAF estimate and the intervals
+            if (!is.null(fit)) {
+                bin_df$q05[b] <- fit[1]; bin_df$BAF[b] <- fit[2]; bin_df$q95[b] <- fit[3]
+            }
+        }
+        if (!is.null(cell_name)) bin_df$cell <- cell_name
+        bin_df
+    }
+
     getAS_CNA_sample <- function(track,
                                  profile,
                                  ac_counts_paths,
@@ -294,12 +334,15 @@ getAS_CNA <- function(res,
                                  ploidy,
                                  phases=NULL,
                                  path_to_phases=NULL,
+                                 cell_name=NULL,
                                  steps=NULL)
     {
         if(is.null(phases))
             phases <- readPhases(path_to_phases)
         ac <- getAC(ac_counts_paths, phases)
         ac.ph <- getPhasedInfo(ac, phases)
+        bin_baf <- tryCatch(getBinBAF(ac.ph, track, cell_name=cell_name),
+                            error=function(e) { warning("getBinBAF failed: ", conditionMessage(e)); NULL })
         prof <- getProfile(ac.ph,
                            prof=profile,
                            steps=steps,
@@ -307,7 +350,7 @@ getAS_CNA <- function(res,
                            ploidy=ploidy,
                            purs=purs,
                            ploidies=ploidies)
-        prof
+        c(prof, list(bin_baf=bin_baf))
     }
 
 
@@ -317,73 +360,24 @@ getAS_CNA <- function(res,
         print("## read-in Phases")
         phases <- readPhases(path_to_phases[[1]])
     }
-
-    # Convert purs/ploidies to list 
-    if(!is.list(purs))
-    {
-        purs <- lapply(1:length(res$allTracks.processed), function(x) purs)
-        ploidies <- lapply(1:length(res$allTracks.processed), function(x) ploidies)
-    }
-
     print("## derive Allele-specific Profiles")
-
     res$allProfiles_AS <- parallel::mclapply(1:length(res$allTracks.processed), function(x)
     {
         cat(".")
-        cat("\n>>> Processing cell", x, "/", length(res$allTracks.processed), "\n")
-        
-        # Check prerequisites
-        if(is.null(res$allSolutions[[x]])) {
-            cat("  ERROR: allSolutions[[", x, "]] is NULL\n")
-            return(NA)
-        }
-        if(is.null(res$allProfiles[[x]])) {
-            cat("  ERROR: allProfiles[[", x, "]] is NULL\n")
-            return(NA)
-        }
-        
-        purity_val <- if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$purity else res$allSolutions[[x]]$purity
-        ploidy_val <- if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$ploidy else res$allSolutions[[x]]$ploidy
-        
-        cat("  purity:", purity_val, "ploidy:", ploidy_val, "\n")
-        
-        if(is.null(purity_val) || is.null(ploidy_val)) {
-            cat("  ERROR: purity or ploidy is NULL\n")
-            return(NA)
-        }
-        result <- tryCatch({
-            getAS_CNA_sample(track=res$allTracks.processed[[x]],
-                             profile=res$allProfiles[[x]],
-                             ac_counts_paths=list_ac_counts_paths[[x]],
-                             phases=phases,
-                             purity=purity_val,
-                             ploidy=ploidy_val,
-                             purs=purs[[x]],
-                             ploidies=ploidies[[x]],
-                             path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
-                             steps=steps)
-        }, error = function(e) {
-            cat("  ERROR in getAS_CNA_sample:", conditionMessage(e), "\n")
-            return(NA)
-        })
-        
-        # Validate result
-        if(!is.list(result) || !"nprof.fixed" %in% names(result)) {
-            cat("  ERROR: Result invalid - class:", class(result), "\n")
-            if(is.list(result)) cat("  Result names:", paste(names(result), collapse=", "), "\n")
-            return(NA)
-        }
-        
-        cat("  SUCCESS\n")
-        result
-    })
-    
-    # POST-RUN: Summary of results
-    cat("\n=== POST-RUN SUMMARY ===\n")
-    valid <- sapply(res$allProfiles_AS, function(x) is.list(x) && "nprof.fixed" %in% names(x))
-    cat("Successful:", sum(valid), "/", length(valid), "\n")
-    cat("Failed cells:", which(!valid), "\n")
-    cat("=== END SUMMARY ===\n\n")
+        getAS_CNA_sample(track=res$allTracks.processed[[x]],
+                         profile=res$allProfiles[[x]],
+                         ac_counts_paths=list_ac_counts_paths[[x]],
+                         phases=phases,
+                         purity=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$purity
+                                else res$allSolutions[[x]]$purity,
+                         ploidy=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$ploidy
+                                else res$allSolutions[[x]]$ploidy,
+                         purs=purs[[x]],
+                         ploidies=ploidies[[x]],
+                         path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
+                         cell_name=names(res$allTracks.processed)[x],
+                         steps=steps)
+    },mc.cores=mc.cores)
     print("## write to disk and plot Allele-specific Profiles")
     pdf(paste0(outdir,"/all_as_cna_profiles_",projectname,".pdf"),width=15,height=5)
     tnull <- lapply(1:length(res$allProfiles_AS), function(x)
