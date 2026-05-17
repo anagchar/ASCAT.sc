@@ -354,6 +354,19 @@ getAS_CNA <- function(res,
     }
 
 
+    cell_names <- names(res$allTracks.processed)
+    if (is.null(names(list_ac_counts_paths)))
+        stop("list_ac_counts_paths must be a named list with cell names matching allTracks.processed. ",
+             "Got an unnamed list — cannot guarantee correct cell-to-allele-counts matching.")
+    missing_cells <- setdiff(cell_names, names(list_ac_counts_paths))
+    if (length(missing_cells) > 0)
+        stop("list_ac_counts_paths is missing entries for cells: ",
+             paste(missing_cells, collapse=", "))
+    extra_cells <- setdiff(names(list_ac_counts_paths), cell_names)
+    if (length(extra_cells) > 0)
+        warning("list_ac_counts_paths has entries not in allTracks.processed (will be ignored): ",
+                paste(extra_cells, collapse=", "))
+
     phases <- NULL
     if(length(path_to_phases)==1)
     {
@@ -361,24 +374,27 @@ getAS_CNA <- function(res,
         phases <- readPhases(path_to_phases[[1]])
     }
     print("## derive Allele-specific Profiles")
-    res$allProfiles_AS <- parallel::mclapply(1:length(res$allTracks.processed), function(x)
+    res$allProfiles_AS <- parallel::mclapply(setNames(seq_along(cell_names), cell_names), function(x)
     {
+        cell <- cell_names[x]
         cat(".")
-        getAS_CNA_sample(track=res$allTracks.processed[[x]],
-                         profile=res$allProfiles[[x]],
-                         ac_counts_paths=list_ac_counts_paths[[x]],
+        getAS_CNA_sample(track=res$allTracks.processed[[cell]],
+                         profile=res$allProfiles[[cell]],
+                         ac_counts_paths=list_ac_counts_paths[[cell]],
                          phases=phases,
-                         purity=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$purity
-                                else res$allSolutions[[x]]$purity,
-                         ploidy=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[x]]$ploidy
-                                else res$allSolutions[[x]]$ploidy,
+                         purity=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[cell]]$purity
+                                else res$allSolutions[[cell]]$purity,
+                         ploidy=if(any(grepl("refitted",names(res)))) res$allSolutions.refitted.auto[[cell]]$ploidy
+                                else res$allSolutions[[cell]]$ploidy,
                          purs=purs[[x]],
                          ploidies=ploidies[[x]],
                          path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
-                         cell_name=names(res$allTracks.processed)[x],
+                         cell_name=cell,
                          steps=steps)
     },mc.cores=mc.cores)
     print("## write to disk and plot Allele-specific Profiles")
+    as_cna_dir <- file.path(outdir, "as_cna_profile")
+    dir.create(as_cna_dir, showWarnings=FALSE, recursive=TRUE)
     pdf(paste0(outdir,"/all_as_cna_profiles_",projectname,".pdf"),width=15,height=5)
     tnull <- lapply(1:length(res$allProfiles_AS), function(x)
     {
@@ -388,7 +404,7 @@ getAS_CNA <- function(res,
         })
         write.table(res$allProfiles_AS[[x]]$nprof.fixed,
                     sep="\t",col.names=T,row.names=F,quote=F,
-                    file=paste0(outdir,"/as_cna_profile_",names(res$allTracks)[x],"_bam",x,".txt"))
+                    file=file.path(as_cna_dir, paste0("as_cna_profile_",names(res$allTracks)[x],"_bam",x,".txt")))
     })
     dev.off()
     res
