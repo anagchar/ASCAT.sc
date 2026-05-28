@@ -119,7 +119,6 @@ getAS_CNA <- function(res,
 
     getAC <- function(ac_counts_paths, phases)
     {
-        ## ##############################
         acs <- do.call("rbind",lapply(ac_counts_paths,function(dd)
         {
             gc()
@@ -285,44 +284,107 @@ getAS_CNA <- function(res,
              ploidy.fixed=sG.fixed$ploidy)
         }
 
-    getBinBAF <- function(ac.ph, track, cell_name = NULL,
-                     min_snps = 2, steps = NULL) {
-        chrs <- names(track$lCTS)
-        bin_df <- do.call(rbind, lapply(chrs, function(chr) {
-            lcts <- track$lCTS[[chr]]
-            data.frame(chr = gsub("chr", "", chr),
-                    start = lcts$start, end = lcts$end,
-                    stringsAsFactors = FALSE)
-        }))
-        rownames(bin_df) <- NULL
-        bin_df$BAF <- NA_real_; bin_df$q05 <- NA_real_; bin_df$q95 <- NA_real_
-        bin_df$nSNP <- 0L
+    getBinBAF <- function(ac.ph, track = NULL, cell_name = NULL,
+                     distance  = 1000,
+                     min_snps  = 20,
+                     min_reads = 30,
+                     steps     = NULL) {
+    suppressPackageStartupMessages({
+        require(GenomicRanges)
+        require(data.table)
+    })
 
-        grbin <- GRanges(bin_df$chr, IRanges(bin_df$start, bin_df$end))
-        grsnp <- GRanges(gsub("chr", "", as.character(ac.ph[, 1])),
-                        IRanges(as.integer(ac.ph[, 2]),
-                                as.integer(ac.ph[, 2])))
-        ovs <- findOverlaps(grbin, grsnp) # map the SNPs to the bins
-        if (length(ovs) == 0) return(bin_df)
+    # Sort SNPs per chromosome by position
+    df <- data.table(
+        chr = gsub("chr", "", as.character(ac.ph[, 1])),
+        pos = as.integer(ac.ph[, 2]),
+        c1  = as.numeric(ac.ph[, 3]),
+        c2  = as.numeric(ac.ph[, 4])
+    )
+    df[, dp := c1 + c2]
+    setorder(df, chr, pos)
 
-        # bin indices and SNP indices
-        qH <- queryHits(ovs); sH <- subjectHits(ovs)
-        c1 <- as.numeric(ac.ph[sH, 3]); c2 <- as.numeric(ac.ph[sH, 4])
-        dp <- c1 + c2
+    bin_list <- list()
 
-        for (b in unique(qH)) {
-            idx <- which(qH == b)
-            bin_df$nSNP[b] <- length(idx)
-            keep <- dp[idx] > 0
-            if (sum(keep) < min_snps) next
-            fit <- tryCatch(fitBinom.1dist(c1[idx][keep], dp[idx][keep], steps = steps),
-                            error = function(e) NULL) # run again the fitBinom.1dist to get the BAF estimate and the intervals
-            if (!is.null(fit)) {
-                bin_df$q05[b] <- fit[1]; bin_df$BAF[b] <- fit[2]; bin_df$q95[b] <- fit[3]
+    chr_levels <- c(as.character(1:22), "X", "Y")
+    chrs_present <- intersect(chr_levels, unique(df$chr))
+
+    for (ch in chrs_present) {
+        sub <- df[chr == ch & dp > 0]
+        if (nrow(sub) == 0) next
+
+        n <- nrow(sub)
+
+        i <- 1
+        while (i <= n) {
+            # Start a new bin at position i
+            bin_start <- sub$pos[i]
+            last_kept_pos <- -Inf
+            snp_idx <- integer(0)
+            total_reads <- 0L
+            n_snps <- 0L
+
+            j <- i
+            while (j <= n) {
+                p <- sub$pos[j]
+                # Distance-thinning within the bin
+                if (p - last_kept_pos >= distance) {
+                    snp_idx <- c(snp_idx, j)
+                    n_snps <- n_snps + 1L
+                    total_reads <- total_reads + sub$dp[j]
+                    last_kept_pos <- p
+                    # Check thresholds
+                    if (n_snps >= min_snps && total_reads >= min_reads) {
+                        break
+                    }
+                }
+                j <- j + 1
+            }
+
+            # End-of-chromosome: bin may not meet thresholds; only keep if it does
+            if (n_snps >= min_snps && total_reads >= min_reads) {
+                bin_end <- sub$pos[j]
+                c1_v <- sub$c1[snp_idx]
+                dp_v <- sub$dp[snp_idx]
+
+                fit    <- tryCatch(fitBinom.1dist(c1_v, dp_v, steps = steps),
+                                   error = function(e) c(NA, NA, NA))
+                fit_ns <- tryCatch(fitBinom.1dist.noswitch(c1_v, dp_v),
+                                   error = function(e) c(NA, NA, NA))
+
+                bin_list[[length(bin_list) + 1]] <- data.table(
+                    chr           = ch,
+                    start         = bin_start,
+                    end           = bin_end,
+                    nSNP          = n_snps,
+                    nSNP_kept     = n_snps,        # same here — built from kept SNPs
+                    total_reads   = total_reads,
+                    bin_size_mb   = (bin_end - bin_start) / 1e6,
+                    q05           = fit[1],
+                    BAF           = fit[2],
+                    q95           = fit[3],
+                    q05_noswitch  = fit_ns[1],
+                    BAF_noswitch  = fit_ns[2],
+                    q95_noswitch  = fit_ns[3]
+                )
+
+                # Move to next SNP after the last kept one
+                i <- j + 1
+            } else {
+                # Couldn't fill a bin at the chromosome end — discard remainder, move on
+                break
             }
         }
-        if (!is.null(cell_name)) bin_df$cell <- cell_name
-        bin_df
+    }
+
+    if (length(bin_list) == 0) {
+        warning("No bins met the thresholds.")
+        return(data.table())
+    }
+
+    bin_df <- rbindlist(bin_list)
+    if (!is.null(cell_name)) bin_df[, cell := cell_name]
+    as.data.frame(bin_df)
     }
 
     getAS_CNA_sample <- function(track,
