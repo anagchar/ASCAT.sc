@@ -188,10 +188,12 @@ run_targeted_sequencing <- function(tumour_bams,
                 timetoread_normals=timetoread_normals,
                 timetoread_tumours=timetoread_tumours,
                 timetoprocessed=timetoprocessed,
-                timetofit=timetofit)
+                timetofit=timetofit,
+                mode="targeted")
     if(predict_refit)
         res <- predictRefit_all(res)
     if(print_results)
         res <- printResults_all(res, outdir=outdir, projectname=projectname)
+    class(res) <- "ascat.sc"
     res
 }

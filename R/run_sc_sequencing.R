@@ -353,5 +353,6 @@ run_sc_sequencing <- function(tumour_bams,
     }
     if(smooth_sc & !any(grepl("_AS",names(res))))
         print("Warning: Smoothing is only possible for allele-specific copy numbers")
+    class(res) <- "ascat.sc"
     res
 }

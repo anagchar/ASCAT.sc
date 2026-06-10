@@ -126,7 +126,20 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 
 11. **Allele-specific CNA (optional).** If phase information is provided, calls `getAS_CNA()` and `getAS_CNA_smoothed()`.
 
-**Returns:** A named list `res` with the following main slots:
+**Returns:** An object of class `ascat.sc` (a named list). Printing it shows a clean overview rather than dumping every slot, and a set of accessor functions provides the commonly-needed pieces. All fields remain reachable directly with `$`, so existing code keeps working.
+
+**Accessors (the "profiles" view):**
+
+| Call | Returns |
+|---|---|
+| `summary(res)` / `getSummaryTable(res)` | Per-sample `samplename` / `purity` / `ploidy` / `ploidy.tumour` table |
+| `getProfiles(res)` | List of total copy-number profiles |
+| `getSolutions(res)` | List of best purity/ploidy solutions |
+| `getProfilesAS(res)` / `getProfilesASsmoothed(res)` | Allele-specific profiles (single-cell only; `NULL` otherwise) |
+| `getRefitted(res)` | Refitted profiles (`auto` / `manual`) if present |
+| `getMetadata(res)` | Run parameters present on the object |
+
+**Main slots (the "detailed" view):**
 
 | Slot | Description |
 |---|---|
@@ -135,11 +148,14 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 | `res$lGCT` | GC content per bin (list by chromosome) |
 | `res$allTracks` | Raw per-cell coverage tracks |
 | `res$allTracks.processed` | Smoothed and segmented tracks per cell |
-| `res$allSols` | Best purity/ploidy solution per cell |
+| `res$allSolutions` | Best purity/ploidy solution per cell |
 | `res$allProfiles` | Copy number profile per cell (data.frame) |
 | `res$allProfiles_AS` | Allele-specific profiles (if computed) |
-| `res$results_summary` | Table with purity, ploidy, flags per cell |
+| `res$summary` | Table with purity, ploidy per cell (written to disk by `printResults_all()`) |
+| `res$mode` | Pipeline that produced the object: `"sc"`, `"targeted"`, or `"methylation"` |
 | `res$binsize` | Bin size used |
+
+The same `ascat.sc` object and accessors are returned by `run_targeted_sequencing()` and `run_methylation_array()`.
 
 ---
 

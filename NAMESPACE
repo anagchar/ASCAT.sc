@@ -1,1 +1,3 @@
 exportPattern("^[[:alpha:]]+")
+S3method(print, ascat.sc)
+S3method(summary, ascat.sc)

@@ -74,33 +74,12 @@ printResults_all <- function(res,
         ##zip(zipfile = paste0(outdir,"/profiles_",projectname,"_refitted.zip"), files = paste0(outdir,"/profiles_",projectname,"_refitted"))
         ##unlink(x=paste0(outdir,"/profiles_",projectname,"_refitted"), recursive = TRUE)
     }
-    .mytry <- function(x,retVal=NA,...)
-    {
-        out <- try(x,silent=T,...)
-        if(inherits(out,"try-error")) return(retVal)
-        out
-    }
-    getploidy <- function(tt)
-    {
-        tt <- data.frame(chromosome=as.character(tt[,"chromosome"]),
-                         start=as.numeric(tt[,"start"]),
-                         end=as.numeric(tt[,"end"]),
-                         total_copy_number=as.numeric(tt[,"total_copy_number"]))
-        sizes <- (tt$end-tt$start)/1000000
-        isna <- is.na(sizes) | is.na(tt$total_copy_number)
-        sum(tt$total_copy_number[!isna]*sizes[!isna],na.rm=T)/sum(sizes[!isna],na.rm=T)
-    }
     try({res <- append(res,
-                       list(summary=list(allSols=data.frame(samplename=names(res$allTracks),
-                                                            purity=sapply(res$allSolutions,function(x) .mytry(x$purity)),
-                                                            ploidy=sapply(res$allSolutions,function(x) .mytry(x$ploidy)),
-                                                            ploidy.tumour=sapply(res$allProfiles,function(x) .mytry(getploidy(x)))),
+                       list(summary=list(allSols=.ascatsc_summary_table(res),
                                          allSols.refitted=if(!any(grepl("refitted",names(res)))) NULL
-                                                          else
-                                                              data.frame(samplename=names(res$allTracks),
-                                                                         purity=sapply(res$allSolutions.refitted.auto,function(x) .mytry(x$purity)),
-                                                                         ploidy=sapply(res$allSolutions.refitted.auto,function(x) .mytry(x$ploidy)),
-                                                                         ploidy.tumour=sapply(res$allProfiles.refitted.auto,function(x) .mytry(getploidy(x)))))))})
+                                                          else .ascatsc_summary_table(res,
+                                                                                      solutions=res$allSolutions.refitted.auto,
+                                                                                      profiles=res$allProfiles.refitted.auto))))})
     outdir <- gsub("/$","",outdir)
     try(write.table(res$summary$allSols,
                     file=paste0(outdir,

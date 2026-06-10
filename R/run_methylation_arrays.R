@@ -256,11 +256,13 @@ run_methylation_array <- function(idat_dir,
                 bins=anno,
                 isPON=FALSE,
                 gamma=GAMMA,
-                timetofit=timetofit)
+                timetofit=timetofit,
+                mode="methylation")
     if(predict_refit)
         res <- predictRefit_all(res, ismedian=T, gamma=GAMMA)
     if(print_results)
         res <- printResults_all(res,  outdir=outdir, ismedian=T, projectname=projectname, rainbowChr=rainbowChr)
     ## ##################################################
+    class(res) <- "ascat.sc"
     res
 }
