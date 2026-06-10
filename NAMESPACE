@@ -1,3 +1,57 @@
-exportPattern("^[[:alpha:]]+")
+# Public API. Functions not listed here are internal to ASCAT.sc and can
+# still be called with the ::: operator (e.g. ASCAT.sc:::treatlSe).
+
+## Entry points
+export(run_ascat)
+export(run_sc_sequencing)
+export(run_targeted_sequencing)
+export(run_methylation_array)
+export(run_any_refitProfile)
+export(run_any_refitProfile_shift)
+export(run_PloidyModifier)
+
+## Result object: accessors and summary
+export(getProfiles)
+export(getSolutions)
+export(getSummaryTable)
+export(getProfilesAS)
+export(getProfilesASsmoothed)
+export(getRefitted)
+export(getMetadata)
+export(summarize_ascat_result)
+
+## Plotting
+export(ascatsc_plot)
+export(ascatsc_plot_from_file)
+export(plotSolution)
+export(plotSunrise)
+export(plotProfile)
+export(plotHeatmap)
+export(plot_AS_profile)
+export(sc_plotHeat)
+export(save_plot)
+
+## Low-level building blocks (advanced / step-by-step workflow)
+export(getStartsEnds)
+export(getBins_lSe_GC_from_fasta)
+export(gcTrack)
+export(getCoverageTrack)
+export(getTrackForAll)
+export(searchGrid)
+export(fitProfile)
+export(getProfile)
+export(writeProfile)
+export(combineDiploid)
+export(identify_diploid_cells)
+export(sc_getCalls)
+export(sc_getMatrixOfCalls)
+export(getAS_CNA)
+export(getAS_CNA_smoothed)
+export(getFilters)
+export(predictRefit_all)
+export(printResults_all)
+export(normaliseByPloidy)
+
+## S3 methods for the ascat.sc result object
 S3method(print, ascat.sc)
 S3method(summary, ascat.sc)

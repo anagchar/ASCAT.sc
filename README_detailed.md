@@ -77,6 +77,22 @@ Output & Visualisation  ←  printResults_all / plotSolution / sc_plotHeat
 
 ## Main Entry-Point Functions
 
+> **Public API.** ASCAT.sc exports ~40 user-facing functions (entry points, result accessors, plotting, and the documented low-level building blocks). All other functions are internal but remain callable with `ASCAT.sc:::fn()`.
+
+### `run_ascat()` — `run_ascat.R`
+
+**Recommended single entry point.** Thin dispatcher that auto-detects the pipeline from its inputs and forwards to `run_sc_sequencing()` / `run_targeted_sequencing()` / `run_methylation_array()`:
+
+- `idat_dir` or `rgSet` present → methylation
+- `bed_file` present → targeted
+- otherwise `tumour_bams` → single-cell / shallow-coverage
+
+Override with `type = "sc" | "targeted" | "methylation"`. Arguments are forwarded by name, so use the same arguments documented for the underlying pipeline.
+
+```r
+res <- run_ascat(tumour_bams = bams, sex = "female", outdir = "out/")
+```
+
 ### `run_sc_sequencing()` — `run_sc_sequencing.R`
 
 The primary pipeline for single-cell and shallow-coverage whole-genome sequencing.
