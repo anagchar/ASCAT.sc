@@ -30,9 +30,13 @@ run_sc_sequencing <- function(tumour_bams,
                               lExclude=NULL,
                               svinput=NULL,
                               lSVinput=NULL,
-                              sc_exclude_badbins=FALSE)
+                              sc_exclude_badbins=FALSE,
+                              binmode=c("fixed","pseudobulk"),
+                              target_reads=1e6,
+                              correction=TRUE)
 {
     checkArguments_scs(c(as.list(environment())))
+    binmode <- match.arg(binmode)
     suppressPackageStartupMessages(require(parallel))
     suppressPackageStartupMessages(require(Rsamtools))
     suppressPackageStartupMessages(require(Biostrings))
@@ -199,6 +203,28 @@ run_sc_sequencing <- function(tumour_bams,
             names(res$allTracks) <- basename(tumour_bams)
         }
     }
+    if(binmode=="pseudobulk")
+    {
+        print(paste0("## define pseudobulk bins from pooled coverage (target_reads=", target_reads, ")"))
+        groups <- getPseudobulkGroups(lapply(res$allTracks, function(x) x$lCTS.tumour),
+                                      target_reads=target_reads)
+        res$nlSe  <- treatlSe(res$lSe,  groups=groups)
+        res$nlGCT <- treatGCT(res$lGCT, groups=groups)
+        for(nm in names(res$allTracks))
+            res$allTracks[[nm]]$nlCTS.tumour <- treatTrack(res$allTracks[[nm]]$lCTS.tumour, groups=groups)
+        ## Re-bin the panel of normals onto the same bins so the subtraction stays aligned
+        if(!is.null(res$lCTS.normal))
+        {
+            for(k in seq_along(res$lCTS.normal))
+                res$lCTS.normal[[k]]$nlCTS.normal <- treatTrack(res$lCTS.normal[[k]]$lCTS.normal, groups=groups)
+            res$nlCTS.normal <- combineDiploid(lapply(res$lCTS.normal, function(x) x$nlCTS.normal))
+            res$lNormals <- lapply(res$lCTS.normal, function(x) x$nlCTS.normal)
+        }
+        res$pseudobulk_groups <- groups
+        ## Re-binning invalidates any previously smoothed tracks (e.g. when a
+        ## fixed-bin res is reused): force re-smoothing on the new bins.
+        res$allTracks.processed <- NULL
+    }
     ## Create normal reference from diploid barcodes (10X mode)
     if(!is.null(barcodes_10x) && !is.null(normal_barcodes))
     {
@@ -236,6 +262,7 @@ run_sc_sequencing <- function(tumour_bams,
         segmentation_alpha=segmentation_alpha,
         normalize=normalize,
         svinput=svinput,
+        correction=correction,
         MC.CORES=MC.CORES))
     }
     else
@@ -255,6 +282,7 @@ run_sc_sequencing <- function(tumour_bams,
                                sdNormalise=0,
                                SBDRY=SBDRY,
                                svinput=if(is.null(lSVinput)) NULL else lSVinput[[x]],
+                               correction=correction,
                                segmentation_alpha=segmentation_alpha)
             },mc.cores=MC.CORES))
         }
@@ -301,6 +329,10 @@ run_sc_sequencing <- function(tumour_bams,
                 maxtumourpsi=maxtumourpsi,
                 build=build,
                 binsize=binsize,
+                binmode=binmode,
+                target_reads=target_reads,
+                correction=correction,
+                pseudobulk_groups=res$pseudobulk_groups,
                 sex=sex,
                 segmentation_alpha=segmentation_alpha,
                 multipcf=multipcf,

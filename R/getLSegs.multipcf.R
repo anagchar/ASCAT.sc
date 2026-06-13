@@ -7,6 +7,7 @@ getLSegs.multipcf <- function(allTracks,
                               segmentation_alpha=0.01,
                               normalize=F,
                               svinput=NULL,
+                              correction=TRUE,
                               MC.CORES=1)
 {
     ## #############################################################
@@ -17,7 +18,7 @@ getLSegs.multipcf <- function(allTracks,
     {
         lCTSs <- parallel::mclapply(lCTS, function(lCT)
         {
-            lCTS <- smoothCoverageTrack(lCT=lCT,lSe=lSe,lGCT=lGCT, lNormals=lNormals)
+            lCTS <- smoothCoverageTrack(lCT=lCT,lSe=lSe,lGCT=lGCT, lNormals=lNormals, correction=correction)
             names(lCTS) <- allchr
             lCTS
         },mc.cores=MC.CORES)

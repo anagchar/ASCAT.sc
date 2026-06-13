@@ -2,6 +2,7 @@ smoothCoverageTrack <- function(lCT,
                                 lSe,
                                 lGCT,
                                 lNormals=NULL,
+                                correction=TRUE,
                                 method=c("loess",
                                          "lowess"))
 {
@@ -23,29 +24,51 @@ smoothCoverageTrack <- function(lCT,
         ifelse(x$records > 0, x$nucleotides / x$records, NA) # set to NA if no reads are found
     }))
 
-    # Bivariate correction with GC and read length
-    valid_idx <- !is.na(allReadLen) & !is.na(allGC) & !is.na(allRec)
-    
-    smoothT <- myloess(LL=sum(valid_idx),
-                       allRec[valid_idx] ~ allGC[valid_idx] + allReadLen[valid_idx],
-                       degree=2,
-                       normalize=TRUE)
+    if(correction)
+    {
+        # Bivariate correction with GC and read length
+        valid_idx <- !is.na(allReadLen) & !is.na(allGC) & !is.na(allRec)
 
-    # Initialize with NA for invalid bins
-    fitted_vals <- rep(NA, length(allRec))
-    residual_vals <- rep(NA, length(allRec))
+        smoothT <- myloess(LL=sum(valid_idx),
+                           allRec[valid_idx] ~ allGC[valid_idx] + allReadLen[valid_idx],
+                           degree=2,
+                           normalize=TRUE)
 
-    fitted_vals[valid_idx] <- smoothT$fitted
-    residual_vals[valid_idx] <- smoothT$residuals
+        # Initialize with NA for invalid bins
+        fitted_vals <- rep(NA, length(allRec))
+        residual_vals <- rep(NA, length(allRec))
 
-    # For invalid bins, use uncorrected values
-    fitted_vals[!valid_idx] <- allRec[!valid_idx]
-    residual_vals[!valid_idx] <- 0
-    
+        fitted_vals[valid_idx] <- smoothT$fitted
+        residual_vals[valid_idx] <- smoothT$residuals
 
-    smoothT <- list(fitted=fitted_vals, residuals=residual_vals)
+        # For invalid bins, use uncorrected values
+        fitted_vals[!valid_idx] <- allRec[!valid_idx]
+        residual_vals[!valid_idx] <- 0
 
-    cat("\n--- Applying correction to coverage tracks ---\n")
+        smoothT <- list(fitted=fitted_vals, residuals=residual_vals)
+
+        cat("\n--- Applying GC + read-length correction to coverage tracks ---\n")
+    }
+    else
+    {
+        # correction=FALSE: skip GC/read-length loess. The (PON-subtracted)
+        # log2 coverage is passed through as the segmented signal; downstream
+        # normaliseByPloidy re-centres it, so the absolute level is irrelevant.
+        # Bins with no reads can be NA (e.g. 10X bins with no barcode coverage);
+        # neutralise any non-finite values (to the cell's median) so segmentation
+        # (smooth.CNA) does not choke on NA/NaN/Inf, mirroring how the corrected
+        # branch zeroes its invalid bins.
+        smoothed_vals <- allRec
+        valid_idx <- is.finite(smoothed_vals)
+        if(any(!valid_idx))
+        {
+            med <- median(smoothed_vals[valid_idx], na.rm=TRUE)
+            if(!is.finite(med)) med <- 0
+            smoothed_vals[!valid_idx] <- med
+        }
+        smoothT <- list(fitted=smoothed_vals, residuals=smoothed_vals)
+        cat("\n--- Skipping GC/read-length correction (correction=FALSE) ---\n")
+    }
     for(i in 1:length(lCT))
     {
         lCT[[i]] <- cbind(lCT[[i]],smoothT$fitted[starts[i]:ends[i]],

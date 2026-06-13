@@ -1,17 +1,20 @@
-treatTrack <- function(lCTS, window)
+treatTrack <- function(lCTS, window=NULL, groups=NULL)
 {
-    nlCTS <- lapply(lCTS,function(df)
+    nlCTS <- lapply(seq_along(lCTS),function(i)
     {
+        df <- lCTS[[i]]
         nr <- nrow(df)
-        starts <- getstartends(end=nr,window=window)$starts
-        ends <- getstartends(end=nr,window=window)$ends
+        se <- if(is.null(groups)) getstartends(end=nr,window=window) else groups[[i]]
+        starts <- se$starts
+        ends <- se$ends
+        w <- if(is.null(groups)) df[starts,"width"]*window else (ends-starts+1)*df[starts,"width"]
         ndf <- data.frame(space=df[starts,"space"],
                           start=df[starts,"start"],
                           end=df[ends,"end"],
-                          width=df[starts,"width"]*window,
+                          width=w,
                           file=df[starts,"file"],
-                          records=sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"records"])),
-                          nucleotides=sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"nucleotides"])))
+                          records=sapply(seq_along(starts),function(x) sum(df[starts[x]:ends[x],"records"])),
+                          nucleotides=sapply(seq_along(starts),function(x) sum(df[starts[x]:ends[x],"nucleotides"])))
         ndf
     })
     names(nlCTS) <- names(lCTS)

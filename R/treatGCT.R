@@ -1,11 +1,11 @@
-treatGCT <- function(lGCT, window=ceiling(as.numeric(WINDOW)/as.numeric("10000")))
+treatGCT <- function(lGCT, window=ceiling(as.numeric(WINDOW)/as.numeric("10000")), groups=NULL)
 {
-    nlGCT <- lapply(lGCT,function(gc)
+    nlGCT <- lapply(seq_along(lGCT),function(i)
     {
+        gc <- lGCT[[i]]
         l <- length(gc)
-        starts <- getstartends(end=l,window=window)$starts
-        ends <- getstartends(end=l,window=window)$ends
-        gc <- sapply(1:length(starts),function(x) mean(gc[starts[x]:ends[x]]))
+        se <- if(is.null(groups)) getstartends(end=l,window=window) else groups[[i]]
+        sapply(seq_along(se$starts),function(x) mean(gc[se$starts[x]:se$ends[x]]))
     })
     names(nlGCT) <- names(lGCT)
     nlGCT

@@ -23,7 +23,11 @@ segmentTrack <- function (covtrack,
                    chr = rep(chr, length(covtrack)),
                    maploc = starts,
                    data.type = "logratio")
-    if(smooth)
+    ## smooth.CNA's trimmed-variance divides by ~0 when a chromosome has <3
+    ## points (e.g. very coarse pseudobulk bins), yielding a NaN SD and an
+    ## "NA/NaN/Inf in foreign function call" crash. Skip smoothing in that case
+    ## (there is nothing to smooth across 1-2 bins anyway).
+    if(smooth && sum(is.finite(covtrack)) >= 3)
         cna <- smooth.CNA(cna)
     if(is.null(SBDRY))
         capture.output(cna <- segment(cna, min.width = min.width,alpha=ALPHA))
