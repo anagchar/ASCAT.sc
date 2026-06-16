@@ -30,9 +30,29 @@ run_sc_sequencing <- function(tumour_bams,
                               lExclude=NULL,
                               svinput=NULL,
                               lSVinput=NULL,
-                              sc_exclude_badbins=FALSE)
+                              sc_exclude_badbins=FALSE,
+                              clustering=FALSE,
+                              fragments=NULL,
+                              rna_counts=NULL)
 {
     checkArguments_scs(c(as.list(environment())))
+
+    ## Cell clustering via getCellGroups()
+    if (clustering) {
+        if (is.null(fragments)) stop("clustering=TRUE requires 'fragments' (path to fragments.tsv.gz)")
+        print("## Running getCellGroups() for cell clustering")
+        clustering_result <- getCellGroups(fragments = fragments, rna_counts = rna_counts)
+        if (is.null(res)) res <- list()
+        res$clustering <- list(
+            clusters = clustering_result$clusters,
+            method = clustering_result$method,
+            seurat_obj = clustering_result$seurat_obj
+        )
+        print(paste0("## Clustering done: ", length(unique(clustering_result$clusters)),
+                      " clusters, ", length(clustering_result$clusters),
+                      " cells (method: ", clustering_result$method, ")"))
+    }
+
     suppressPackageStartupMessages(require(parallel))
     suppressPackageStartupMessages(require(Rsamtools))
     suppressPackageStartupMessages(require(Biostrings))

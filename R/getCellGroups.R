@@ -126,10 +126,13 @@ getCellGroups <- function(fragments,
 
   # Step 6: Return results
   clusters <- setNames(as.character(seurat_obj$seurat_clusters), colnames(seurat_obj))
-  message("Clustering complete: ", length(unique(clusters)), " clusters, ", length(clusters), " cells")
+  method <- if (!is.null(rna_counts)) "wnn" else "lsi"
+  message("Clustering complete: ", length(unique(clusters)), " clusters, ",
+          length(clusters), " cells (method: ", method, ")")
 
   list(
     clusters = clusters,
+    method = method,
     seurat_obj = seurat_obj
   )
 }
