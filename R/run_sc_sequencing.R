@@ -32,6 +32,7 @@ run_sc_sequencing <- function(tumour_bams,
                               lSVinput=NULL,
                               sc_exclude_badbins=FALSE,
                               clustering=FALSE,
+                              normalize_by_cluster=FALSE,
                               fragments=NULL,
                               rna_counts=NULL)
 {
@@ -284,7 +285,20 @@ run_sc_sequencing <- function(tumour_bams,
     else
         names(res$allTracks.processed) <- names(res$allTracks)
 
-    if(!is.list(purs)) 
+    ## Cluster-based logR normalization
+    if (normalize_by_cluster) {
+        if (!any(names(res) == "clustering"))
+            stop("normalize_by_cluster=TRUE requires clustering=TRUE (or res$clustering from a prior run)")
+        print("## Normalize logR by cluster pseudobulk")
+        res_norm <- normalizeByCluster(res,
+                                        clusters = res$clustering$clusters,
+                                        segmentation_alpha = segmentation_alpha,
+                                        MC.CORES = MC.CORES)
+        res$allTracks.processed <- res_norm$allTracks.processed
+        res$cluster_pseudobulks <- res_norm$cluster_pseudobulks
+    }
+
+    if(!is.list(purs))
     {
         purs <- lapply(1:length(res$allTracks.processed), function(x) purs)
         ploidies <- lapply(1:length(res$allTracks.processed), function(x) ploidies)
@@ -332,6 +346,8 @@ run_sc_sequencing <- function(tumour_bams,
                 timetofit=res$timetofit,
                 svinput=svinput,
                 lSVinput=lSVinput,
+                clustering=res$clustering,
+                cluster_pseudobulks=res$cluster_pseudobulks,
                 mode="sc")
     if(predict_refit)
     {
