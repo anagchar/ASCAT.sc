@@ -44,6 +44,9 @@ getCellGroups <- function(fragments,
   # Step 2: Load barcode map (if RNA provided)
   if (is.null(barcode_map) && !is.null(rna_counts)) {
     barcode_map <- system.file("extdata", "barcodes_atac_gex.csv", package = "ASCAT.sc")
+    if (nchar(barcode_map) == 0)
+      stop("Barcode map (ATAC<->GEX) not found in installed ASCAT.sc package. ",
+           "Pass it explicitly via the barcode_map argument.")
   }
 
   # Step 3: Build ATAC peak matrix + LSI
@@ -55,8 +58,12 @@ getCellGroups <- function(fragments,
   # Create fragment object with filtered barcodes
   frag_obj <- Signac::CreateFragmentObject(path = fragments, cells = barcodes)
 
-  # Call peaks from fragments (uses MACS2/3 internally)
-  peaks_gr <- Signac::CallPeaks(frag_obj)
+  # Call peaks from fragments — find macs2 or macs3 on PATH
+  macs_bin <- Sys.which("macs2")
+  if (macs_bin == "") macs_bin <- Sys.which("macs3")
+  if (macs_bin == "")
+    stop("Neither macs2 nor macs3 found on PATH. Install MACS: https://macs3-project.github.io/MACS/")
+  peaks_gr <- Signac::CallPeaks(frag_obj, macs2.path = macs_bin)
 
   # Build peak x cell count matrix
   peak_matrix <- Signac::FeatureMatrix(fragments = frag_obj, features = peaks_gr, cells = barcodes)
