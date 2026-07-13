@@ -1695,11 +1695,115 @@ ascatsc_plot <- function(res,
 }
 
 # =============================================================================
+# STEP 9: Read Counts + Median Plot
+# =============================================================================
+
+#' Plot per-cell read counts with a median line across the whole genome
+#'
+#' Shows every cell's raw read count per bin as a scatter and overlays the
+#' per-bin median across all cells as a connecting line. Useful for QC and
+#' for spotting systematic coverage biases.
+#'
+#' @param res ASCAT.sc result object (must contain \code{allTracks.processed}).
+#' @param output_dir Directory for saving output files.
+#' @param output_prefix Filename prefix (without extension).
+#' @param output_format Output format: "png" (default) or "pdf".
+#' @param width Figure width in inches.
+#' @param height Figure height in inches.
+#' @param dpi Resolution for PNG output.
+#' @param point_size Size of per-cell scatter points.
+#' @param point_alpha Transparency of per-cell points (0-1).
+#' @param line_color Colour of the median connecting line.
+#' @param line_size Line width for the median line.
+#' @param save Logical. If TRUE, save to file.
+#' @return ggplot object (invisibly if \code{save = TRUE}).
+#'
+#' @examples
+#' res <- readRDS("ASCAT_results.rds")
+#' ascatsc_plot_readcounts(res)
+ascatsc_plot_readcounts <- function(res,
+                                    output_dir = ".",
+                                    output_prefix = "readcounts_median",
+                                    output_format = "png",
+                                    width = 20,
+                                    height = 6,
+                                    dpi = 300,
+                                    point_size = 0.3,
+                                    point_alpha = 0.05,
+                                    line_color = "red",
+                                    line_size = 0.8,
+                                    save = TRUE) {
+
+  if (is.null(res$allTracks.processed)) {
+    stop("res$allTracks.processed not found. Read-count plots require the processed tracks.")
+  }
+
+  message("=== ASCAT.sc Read Counts + Median ===")
+
+  bins <- extract_bins(res)
+  chr_bounds <- make_chr_bounds(bins)
+
+  cell_names <- names(res$allTracks.processed)
+  message(sprintf("  Extracting read counts for %d cells...", length(cell_names)))
+
+  counts_list <- lapply(cell_names, function(cell) {
+    dt <- data.table::rbindlist(res$allTracks.processed[[cell]]$lCTS)
+    as.numeric(dt$records)
+  })
+
+  counts_mat <- do.call(cbind, counts_list)
+  colnames(counts_mat) <- cell_names
+
+  bin_median <- apply(counts_mat, 1, stats::median, na.rm = TRUE)
+
+  counts_dt <- data.table::data.table(bin = seq_len(nrow(counts_mat)), counts_mat)
+  counts_long <- data.table::melt(counts_dt, id.vars = "bin",
+                                  variable.name = "cell",
+                                  value.name = "read_count")
+
+  median_dt <- data.table::data.table(bin = seq_len(length(bin_median)),
+                                      median_count = bin_median)
+
+  message("  Building plot...")
+  theme_set(theme_cowplot())
+
+  p <- ggplot() +
+    geom_point(data = counts_long,
+               aes(x = bin, y = read_count),
+               size = point_size, alpha = point_alpha, color = "grey40") +
+    geom_line(data = median_dt,
+              aes(x = bin, y = median_count),
+              color = line_color, linewidth = line_size) +
+    geom_vline(data = chr_bounds, aes(xintercept = max), linetype = 2) +
+    scale_x_continuous(expand = c(0, 0),
+                       breaks = chr_bounds$mid,
+                       labels = chr_bounds$chr) +
+    scale_y_continuous(labels = scales::comma) +
+    labs(x = "", y = "Read Counts") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
+          axis.title.y = element_text(size = 24),
+          axis.text.y = element_text(size = 16))
+
+  if (save) {
+    plots_dir <- file.path(output_dir, "plots")
+    if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
+
+    ext <- output_format[1]
+    out_file <- file.path(plots_dir, paste0(output_prefix, ".", ext))
+    ggsave(out_file, p, width = width, height = height, dpi = dpi, bg = "white")
+    message(sprintf("  Saved: %s", out_file))
+  }
+
+  message("=== Done ===")
+  return(invisible(p))
+}
+
+# =============================================================================
 # Quick convenience function for common use cases
 # =============================================================================
 
 #' Quick plot from RDS file path
-#' 
+#'
 #' @param rds_path Path to ASCAT.sc results RDS file
 #' @param ... Additional arguments passed to ascatsc_plot
 ascatsc_plot_from_file <- function(rds_path, ...) {
