@@ -1710,6 +1710,9 @@ ascatsc_plot <- function(res,
 #'        cell profiles only.
 #' @param cell_id Character vector of cell names to plot (per-cell mode).
 #'        If NULL, all cells are plotted.
+#' @param corrected Logical. If FALSE (default), plot raw read counts
+#'        (\code{records}). If TRUE, plot GC/read-length corrected values
+#'        (\code{smoothed} column from the loess correction).
 #' @param output_dir Directory for saving output files.
 #' @param output_prefix Filename prefix for the summary plot (without extension).
 #' @param output_format Output format: "png" (default) or "pdf".
@@ -1738,6 +1741,7 @@ ascatsc_plot <- function(res,
 ascatsc_plot_readcounts <- function(res,
                                     plot_type = c("all", "summary", "per_cell"),
                                     cell_id = NULL,
+                                    corrected = FALSE,
                                     output_dir = ".",
                                     output_prefix = "readcounts_median",
                                     output_format = "png",
@@ -1756,18 +1760,23 @@ ascatsc_plot_readcounts <- function(res,
     stop("res$allTracks.processed not found. Read-count plots require the processed tracks.")
   }
 
+  y_label <- if (corrected) "GC/RL Corrected (smoothed)" else "Read Counts"
+
   message("=== ASCAT.sc Read Counts + Median ===")
-  message(sprintf("  Plot type: %s", plot_type))
+  message(sprintf("  Plot type: %s | Data: %s", plot_type,
+                  if (corrected) "GC/read-length corrected" else "raw"))
 
   bins <- extract_bins(res)
   chr_bounds <- make_chr_bounds(bins)
 
   cell_names <- names(res$allTracks.processed)
-  message(sprintf("  Extracting read counts for %d cells...", length(cell_names)))
+  message(sprintf("  Extracting %s for %d cells...",
+                  if (corrected) "corrected values" else "read counts",
+                  length(cell_names)))
 
   counts_list <- lapply(cell_names, function(cell) {
     dt <- data.table::rbindlist(res$allTracks.processed[[cell]]$lCTS)
-    as.numeric(dt$records)
+    if (corrected) as.numeric(dt$smoothed) else as.numeric(dt$records)
   })
 
   counts_mat <- do.call(cbind, counts_list)
@@ -1801,7 +1810,7 @@ ascatsc_plot_readcounts <- function(res,
                          breaks = chr_bounds$mid,
                          labels = chr_bounds$chr) +
       scale_y_continuous(labels = scales::comma) +
-      labs(x = "", y = "Read Counts") +
+      labs(x = "", y = y_label) +
       theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
             axis.title.y = element_text(size = 24),
             axis.text.y = element_text(size = 16))
