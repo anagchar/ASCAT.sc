@@ -1700,28 +1700,44 @@ ascatsc_plot <- function(res,
 
 #' Plot per-cell read counts with a median line across the whole genome
 #'
-#' Shows every cell's raw read count per bin as a scatter and overlays the
-#' per-bin median across all cells as a connecting line. Useful for QC and
-#' for spotting systematic coverage biases.
+#' Shows raw read counts per bin and overlays the per-bin median across all
+#' cells as a connecting line. Produces a summary scatter (all cells overlaid)
+#' and/or individual per-cell profiles, each with the global median for reference.
 #'
 #' @param res ASCAT.sc result object (must contain \code{allTracks.processed}).
+#' @param plot_type "all" (default) for both summary and per-cell plots,
+#'        "summary" for the combined scatter only, "per_cell" for individual
+#'        cell profiles only.
+#' @param cell_id Character vector of cell names to plot (per-cell mode).
+#'        If NULL, all cells are plotted.
 #' @param output_dir Directory for saving output files.
-#' @param output_prefix Filename prefix (without extension).
+#' @param output_prefix Filename prefix for the summary plot (without extension).
 #' @param output_format Output format: "png" (default) or "pdf".
 #' @param width Figure width in inches.
 #' @param height Figure height in inches.
 #' @param dpi Resolution for PNG output.
-#' @param point_size Size of per-cell scatter points.
-#' @param point_alpha Transparency of per-cell points (0-1).
+#' @param point_size Size of per-cell scatter points (summary plot).
+#' @param point_alpha Transparency of per-cell points (summary plot, 0-1).
 #' @param line_color Colour of the median connecting line.
 #' @param line_size Line width for the median line.
-#' @param save Logical. If TRUE, save to file.
-#' @return ggplot object (invisibly if \code{save = TRUE}).
+#' @param save Logical. If TRUE, save to files.
+#' @return ggplot object (invisibly).
 #'
 #' @examples
 #' res <- readRDS("ASCAT_results.rds")
+#'
+#' # Summary + all per-cell profiles
 #' ascatsc_plot_readcounts(res)
+#'
+#' # Only the summary scatter
+#' ascatsc_plot_readcounts(res, plot_type = "summary")
+#'
+#' # Per-cell plots for specific cells
+#' ascatsc_plot_readcounts(res, plot_type = "per_cell",
+#'                         cell_id = c("AGCTAGTAGGCCTTGT", "AAACAAGCAAAGTCAT"))
 ascatsc_plot_readcounts <- function(res,
+                                    plot_type = c("all", "summary", "per_cell"),
+                                    cell_id = NULL,
                                     output_dir = ".",
                                     output_prefix = "readcounts_median",
                                     output_format = "png",
@@ -1734,11 +1750,14 @@ ascatsc_plot_readcounts <- function(res,
                                     line_size = 0.8,
                                     save = TRUE) {
 
+  plot_type <- match.arg(plot_type)
+
   if (is.null(res$allTracks.processed)) {
     stop("res$allTracks.processed not found. Read-count plots require the processed tracks.")
   }
 
   message("=== ASCAT.sc Read Counts + Median ===")
+  message(sprintf("  Plot type: %s", plot_type))
 
   bins <- extract_bins(res)
   chr_bounds <- make_chr_bounds(bins)
@@ -1755,47 +1774,98 @@ ascatsc_plot_readcounts <- function(res,
   colnames(counts_mat) <- cell_names
 
   bin_median <- apply(counts_mat, 1, stats::median, na.rm = TRUE)
-
-  counts_dt <- data.table::data.table(bin = seq_len(nrow(counts_mat)), counts_mat)
-  counts_long <- data.table::melt(counts_dt, id.vars = "bin",
-                                  variable.name = "cell",
-                                  value.name = "read_count")
-
   median_dt <- data.table::data.table(bin = seq_len(length(bin_median)),
                                       median_count = bin_median)
 
-  message("  Building plot...")
   theme_set(theme_cowplot())
 
-  p <- ggplot() +
-    geom_point(data = counts_long,
-               aes(x = bin, y = read_count),
-               size = point_size, alpha = point_alpha, color = "grey40") +
-    geom_line(data = median_dt,
-              aes(x = bin, y = median_count),
-              color = line_color, linewidth = line_size) +
-    geom_vline(data = chr_bounds, aes(xintercept = max), linetype = 2) +
-    scale_x_continuous(expand = c(0, 0),
-                       breaks = chr_bounds$mid,
-                       labels = chr_bounds$chr) +
-    scale_y_continuous(labels = scales::comma) +
-    labs(x = "", y = "Read Counts") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
-          axis.title.y = element_text(size = 24),
-          axis.text.y = element_text(size = 16))
-
+  plots_dir <- file.path(output_dir, "plots")
+  rc_profiles_dir <- file.path(plots_dir, "readcount_profiles")
   if (save) {
-    plots_dir <- file.path(output_dir, "plots")
     if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
+    if (plot_type %in% c("all", "per_cell") && !dir.exists(rc_profiles_dir))
+      dir.create(rc_profiles_dir, recursive = TRUE)
+  }
 
-    ext <- output_format[1]
-    out_file <- file.path(plots_dir, paste0(output_prefix, ".", ext))
-    ggsave(out_file, p, width = width, height = height, dpi = dpi, bg = "white")
-    message(sprintf("  Saved: %s", out_file))
+  # --- Summary plot: one dot per bin (median across all cells) + connecting line ---
+  if (plot_type %in% c("all", "summary")) {
+    message("  Building summary plot (per-bin median across all cells)...")
+
+    p_summary <- ggplot(median_dt) +
+      geom_point(aes(x = bin, y = median_count),
+                 size = point_size, color = "grey40") +
+      geom_line(aes(x = bin, y = median_count),
+                color = line_color, linewidth = line_size) +
+      geom_vline(data = chr_bounds, aes(xintercept = max), linetype = 2) +
+      scale_x_continuous(expand = c(0, 0),
+                         breaks = chr_bounds$mid,
+                         labels = chr_bounds$chr) +
+      scale_y_continuous(labels = scales::comma) +
+      labs(x = "", y = "Read Counts") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
+            axis.title.y = element_text(size = 24),
+            axis.text.y = element_text(size = 16))
+
+    if (save) {
+      ext <- output_format[1]
+      out_file <- file.path(plots_dir, paste0(output_prefix, ".", ext))
+      ggsave(out_file, p_summary, width = width, height = height, dpi = dpi, bg = "white")
+      message(sprintf("  Saved: %s", out_file))
+    }
+  }
+
+  # --- Per-cell plots: individual cell read counts + median line ---
+  if (plot_type %in% c("all", "per_cell")) {
+    if (!is.null(cell_id)) {
+      cells_to_plot <- cell_id[cell_id %in% cell_names]
+      if (length(cells_to_plot) == 0) {
+        warning("No cell_id matched. Available names look like: ",
+                paste(head(cell_names, 3), collapse = ", "))
+      }
+    } else {
+      cells_to_plot <- cell_names
+    }
+
+    message(sprintf("  Creating per-cell read count plots for %d cells...", length(cells_to_plot)))
+
+    for (cell in cells_to_plot) {
+      cell_idx <- match(cell, cell_names)
+      cell_dt <- data.table::data.table(bin = seq_len(nrow(counts_mat)),
+                                        read_count = counts_mat[, cell_idx])
+
+      p_cell <- ggplot() +
+        geom_point(data = cell_dt,
+                   aes(x = bin, y = read_count),
+                   size = 0.5, color = "grey40", alpha = 0.6) +
+        geom_line(data = median_dt,
+                  aes(x = bin, y = median_count),
+                  color = line_color, linewidth = line_size) +
+        geom_vline(data = chr_bounds, aes(xintercept = max), linetype = 2) +
+        scale_x_continuous(expand = c(0, 0),
+                           breaks = chr_bounds$mid,
+                           labels = chr_bounds$chr) +
+        scale_y_continuous(labels = scales::comma) +
+        labs(x = "", y = "Read Counts") +
+        ggtitle(cell) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
+              axis.title.y = element_text(size = 24),
+              axis.text.y = element_text(size = 16),
+              plot.title = element_text(hjust = 0.5, size = 16))
+
+      if (save) {
+        ext <- output_format[1]
+        cell_file <- file.path(rc_profiles_dir, paste0(cell, ".", ext))
+        ggsave(cell_file, p_cell, width = width, height = height, dpi = dpi, bg = "white")
+      }
+    }
+    message(sprintf("  Saved %d per-cell read count plots to: %s",
+                    length(cells_to_plot), rc_profiles_dir))
   }
 
   message("=== Done ===")
-  return(invisible(p))
+
+  if (exists("p_summary")) return(invisible(p_summary))
+  if (exists("p_cell")) return(invisible(p_cell))
 }
 
 # =============================================================================
