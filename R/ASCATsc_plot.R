@@ -1833,13 +1833,11 @@ ascatsc_plot_readcounts <- function(res,
       cell_dt <- data.table::data.table(bin = seq_len(nrow(counts_mat)),
                                         read_count = counts_mat[, cell_idx])
 
-      p_cell <- ggplot() +
-        geom_point(data = cell_dt,
-                   aes(x = bin, y = read_count),
+      p_cell <- ggplot(cell_dt) +
+        geom_point(aes(x = bin, y = read_count),
                    size = 0.5, color = "grey40", alpha = 0.6) +
-        geom_line(data = median_dt,
-                  aes(x = bin, y = median_count),
-                  color = line_color, linewidth = line_size) +
+        geom_line(aes(x = bin, y = read_count),
+                  color = line_color, linewidth = 0.3) +
         geom_vline(data = chr_bounds, aes(xintercept = max), linetype = 2) +
         scale_x_continuous(expand = c(0, 0),
                            breaks = chr_bounds$mid,
