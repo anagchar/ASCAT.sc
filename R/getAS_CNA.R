@@ -3,6 +3,7 @@ getAS_CNA <- function(res,
                       list_ac_counts_paths,
                       purs,
                       ploidies,
+                      distances=NULL,
                       chrstring="chr",
                       projectname="project",
                       outdir="./",
@@ -199,7 +200,8 @@ getAS_CNA <- function(res,
                            ploidy,
                            purs,
                            ploidies,
-                           steps=NULL)
+                           steps=NULL,
+                           distance=1000)
     {
         nprof <- data.frame(chr=as.character(prof[,"chromosome"]),
                             startpos=as.numeric(prof[,"start"]),
@@ -235,7 +237,7 @@ getAS_CNA <- function(res,
         for(i in unique(qH))
         {
             inds <- 1:nrow(df)%in%sH[qH==i]
-            inds[inds] <- inds[inds] & is_distant_enough(df[inds,2])
+            inds[inds] <- inds[inds] & is_distant_enough(df[inds,2], distance=distance)
             if(sum(inds)>1)
             {
                 nprof[i,c("q05","BAF","q95")] <- fitBinom.1dist(df[inds, 3],
@@ -397,13 +399,14 @@ getAS_CNA <- function(res,
                                  phases=NULL,
                                  path_to_phases=NULL,
                                  cell_name=NULL,
-                                 steps=NULL)
+                                 steps=NULL,
+                                 distance=1000)
     {
         if(is.null(phases))
             phases <- readPhases(path_to_phases)
         ac <- getAC(ac_counts_paths, phases)
         ac.ph <- getPhasedInfo(ac, phases)
-        bin_baf <- tryCatch(getBinBAF(ac.ph, track, cell_name=cell_name),
+        bin_baf <- tryCatch(getBinBAF(ac.ph, track, cell_name=cell_name, distance=distance),
                             error=function(e) { warning("getBinBAF failed: ", conditionMessage(e)); NULL })
         prof <- getProfile(ac.ph,
                            prof=profile,
@@ -411,7 +414,8 @@ getAS_CNA <- function(res,
                            purity=purity,
                            ploidy=ploidy,
                            purs=purs,
-                           ploidies=ploidies)
+                           ploidies=ploidies,
+                           distance=distance)
         c(prof, list(bin_baf=bin_baf))
     }
 
@@ -428,6 +432,16 @@ getAS_CNA <- function(res,
     if (length(extra_cells) > 0)
         warning("list_ac_counts_paths has entries not in allTracks.processed (will be ignored): ",
                 paste(extra_cells, collapse=", "))
+
+    if (!is.null(distances)) {
+        if (is.null(names(distances)))
+            stop("distances must be a named list with cell names matching allTracks.processed. ",
+                 "Got an unnamed list — cannot guarantee correct cell-to-distance matching.")
+        missing_dist_cells <- setdiff(cell_names, names(distances))
+        if (length(missing_dist_cells) > 0)
+            stop("distances is missing entries for cells: ",
+                 paste(missing_dist_cells, collapse=", "))
+    }
 
     phases <- NULL
     if(length(path_to_phases)==1)
@@ -452,7 +466,8 @@ getAS_CNA <- function(res,
                          ploidies=ploidies[[x]],
                          path_to_phases=if(length(path_to_phases)>1) path_to_phases[[x]] else NULL,
                          cell_name=cell,
-                         steps=steps)
+                         steps=steps,
+                         distance=if(!is.null(distances)) distances[[cell]] else 1000)
     },mc.cores=mc.cores)
     print("## write to disk and plot Allele-specific Profiles")
     as_cna_dir <- file.path(outdir, "as_cna_profile")

@@ -327,6 +327,7 @@ run_sc_sequencing <- function(tumour_bams,
                 lSe=res$nlSe,
                 lGCT=res$nlGCT,
                 isPON=res$isPON,
+                bam_n50=res$bam_n50,
                 timetoread_tumours=res$timetoread_tumours,
                 timetoprocessed=res$timetoprocessed,
                 timetofit=res$timetofit,
@@ -354,11 +355,30 @@ run_sc_sequencing <- function(tumour_bams,
     if(!is.null(list_ac_counts_paths) & !is.null(path_to_phases))
     {
         print("## get Allele-specific CNA")
+        if(is.null(res$bam_n50))
+        {
+            print("## compute Read N50 per bam for SNP-independence distance")
+            res$bam_n50 <- setNames(mclapply(tumour_bams, getReadN50, mc.cores=MC.CORES),
+                                    basename(tumour_bams))
+        }
+        # One BAM can supply many cells (barcodes_10x demux), so match by the
+        # basename(bamfile)_ prefix run_sc_sequencing() itself adds to cell
+        # names when length(tumour_bams)>1; fall back to the single BAM's N50
+        # when there is only one entry to match against.
+        cell_names <- names(res$allTracks.processed)
+        distances <- setNames(lapply(cell_names, function(cn)
+        {
+            hit <- names(res$bam_n50)[startsWith(cn, paste0(names(res$bam_n50), "_"))]
+            if (length(hit) == 1) return(res$bam_n50[[hit]])
+            if (length(res$bam_n50) == 1) return(res$bam_n50[[1]])
+            stop("getReadN50: could not match cell '", cn, "' to a source BAM.")
+        }), cell_names)
         res <- getAS_CNA(res,
                          path_to_phases=path_to_phases,
                          list_ac_counts_paths=list_ac_counts_paths,
                          purs=purs,
                          ploidies=ploidies,
+                         distances=distances,
                          outdir=outdir,
                          projectname=projectname,
                          steps=steps,
