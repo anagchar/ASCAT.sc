@@ -63,6 +63,8 @@ sc_excludeBadBins <- function(res)
         !is.null(res$lCTS.normal[[1]]$nlCTS.normal)
     has_barcode_normals <- !has_bam_normals && !is.null(res$lNormals) && length(res$lNormals) > 0
 
+    allTracks_nms <- names(res$allTracks)
+
     if(has_bam_normals)
     {
         print("Using normal BAM samples for removal of bad bins")
@@ -108,5 +110,6 @@ sc_excludeBadBins <- function(res)
             res$allTracks[[x]]
         })
     }
+    names(res$allTracks) <- allTracks_nms
     res
 }
