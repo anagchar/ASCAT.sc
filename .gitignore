@@ -75,3 +75,4 @@ inst/figures/
 coverage/
 covr/
 tests/testthat/_snaps/.claude/
+.claude/
