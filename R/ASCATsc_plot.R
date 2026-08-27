@@ -326,6 +326,36 @@ extract_total_profiles <- function(res) {
   return(list(profiles = profiles, raw = raw))
 }
 
+# Identify non-neutral (gain/loss) copy-number regions for one cell from its
+# logr-derived total CN profile, for use as background highlights on
+# profile / BAF plots so a call can be visually cross-checked against BAF.
+#' @param cn Per-bin total copy number for one cell (e.g. profiles$profiles[[cell]])
+#' @param bins data.table with genomic coordinates (same bins used to build cn)
+#' @param neutral_cn Copy number considered neutral/diploid (default 2)
+#' @return data.table with chr, type ("gain"/"loss"), start_bin, end_bin (one row per region)
+find_cna_regions <- function(cn, bins, neutral_cn = 2) {
+  setDT(bins)
+  dt <- data.table(bin = seq_len(nrow(bins)), chr = bins$chr, cn = as.numeric(cn))
+  dt[, type := fifelse(cn > neutral_cn, "gain", fifelse(cn < neutral_cn, "loss", "neutral"))]
+  dt[, seg_id := rleid(chr, type)]
+
+  non_neutral <- dt[type != "neutral"]
+  if (nrow(non_neutral) == 0) {
+    # Fully-neutral cell (e.g. flat CN=2 everywhere) - nothing to highlight.
+    # Skip the by= aggregation: on 0 rows data.table still probes min()/max()
+    # to infer output types, which warns "no non-missing arguments".
+    return(data.table(chr = character(0), type = character(0),
+                      start_bin = integer(0), end_bin = integer(0)))
+  }
+
+  regions <- non_neutral[, .(
+    start_bin = min(bin),
+    end_bin   = max(bin)
+  ), by = .(seg_id, chr, type)]
+  regions[, seg_id := NULL]
+  regions[]
+}
+
 # Extract ALLELE-SPECIFIC profiles (nMajor and nMinor)
 #' Uses num.mark from res$allProfiles to expand segments to bins
 #' @param res ASCAT.sc result object
@@ -473,6 +503,92 @@ extract_baf_ci <- function(res, cell_name, bins) {
     nMajor_upper = rep(nMajor_upper, num_mark),
     nMinor_lower = rep(nMinor_lower, num_mark),
     nMinor_upper = rep(nMinor_upper, num_mark)
+  )
+}
+
+#' Extract per-bin BAF_noswitch (unfolded, 0-1 scale) and its 5-95% CI for one cell
+#' @param res ASCAT.sc result object
+#' @param cell_name Name of the cell to extract
+#' @param bins data.table from extract_bins() (chr, start, end)
+#' @return data.table with bin, baf_val, baf_lo, baf_hi, or NULL if the cell
+#'         has no BAF_noswitch column (e.g. AS mode was off for that cell)
+extract_baf_noswitch <- function(res, cell_name, bins) {
+  as_profiles <- if (!is.null(res$allProfiles_AS_smoothed)) res$allProfiles_AS_smoothed else res$allProfiles_AS
+  cell_as <- as_profiles[[cell_name]]
+  if (is.null(cell_as)) return(NULL)
+
+  # smoothed: cell_as IS the data frame; unsmoothed: access $nprof.fixed
+  seg_prof <- as.data.table(if (is.data.frame(cell_as) || is.matrix(cell_as)) cell_as else cell_as$nprof.fixed)
+  if (!"BAF_noswitch" %in% names(seg_prof)) return(NULL)
+
+  # Map each bin onto its covering segment by genomic position (chr +
+  # startpos/endpos), not by num.mark: the allele-specific profile can come
+  # from a different segmentation run than res$allProfiles (e.g. a mixed
+  # total-CN/allele-specific result object, built by grafting allProfiles_AS
+  # from one run onto allProfiles from another), so the two grids are not
+  # guaranteed to have the same number of segments per cell.
+  seg_dt <- seg_prof[, .(chr = as.character(chr),
+                         startpos = as.numeric(startpos), endpos = as.numeric(endpos),
+                         BAF_noswitch = as.numeric(BAF_noswitch),
+                         q05_noswitch = as.numeric(q05_noswitch),
+                         q95_noswitch = as.numeric(q95_noswitch))]
+  setkey(seg_dt, chr, startpos, endpos)
+
+  bin_pts <- data.table(bin = seq_len(nrow(bins)), chr = as.character(bins$chr),
+                        pos = (bins$start + bins$end) / 2)
+  bin_pts[, `:=`(start = pos, end = pos)]
+
+  hits <- foverlaps(bin_pts, seg_dt,
+                    by.x = c("chr", "start", "end"), by.y = c("chr", "startpos", "endpos"),
+                    type = "within", mult = "first")
+
+  data.table(
+    bin     = hits$bin,
+    baf_val = hits$BAF_noswitch,
+    baf_lo  = hits$q05_noswitch,
+    baf_hi  = hits$q95_noswitch
+  )
+}
+
+#' Extract per-bin raw/folded BAF (segment BAF, before switch-error
+#' correction) and its 5-95% CI for one cell. Kept alongside
+#' extract_baf_noswitch() so the corrected and uncorrected BAF can be
+#' compared directly - unlike BAF_noswitch this is naturally folded toward
+#' [0.5, 1] since random allele-identity flips between het SNPs aren't
+#' resolved.
+#' @param res ASCAT.sc result object
+#' @param cell_name Name of the cell to extract
+#' @param bins data.table from extract_bins() (chr, start, end)
+#' @return data.table with bin, baf_val, baf_lo, baf_hi, or NULL if the cell
+#'         has no BAF column
+extract_baf_raw <- function(res, cell_name, bins) {
+  as_profiles <- if (!is.null(res$allProfiles_AS_smoothed)) res$allProfiles_AS_smoothed else res$allProfiles_AS
+  cell_as <- as_profiles[[cell_name]]
+  if (is.null(cell_as)) return(NULL)
+
+  seg_prof <- as.data.table(if (is.data.frame(cell_as) || is.matrix(cell_as)) cell_as else cell_as$nprof.fixed)
+  if (!"BAF" %in% names(seg_prof)) return(NULL)
+
+  # Same genomic-position mapping as extract_baf_noswitch() - see that
+  # function for why num.mark can't be used here.
+  seg_dt <- seg_prof[, .(chr = as.character(chr),
+                         startpos = as.numeric(startpos), endpos = as.numeric(endpos),
+                         BAF = as.numeric(BAF), q05 = as.numeric(q05), q95 = as.numeric(q95))]
+  setkey(seg_dt, chr, startpos, endpos)
+
+  bin_pts <- data.table(bin = seq_len(nrow(bins)), chr = as.character(bins$chr),
+                        pos = (bins$start + bins$end) / 2)
+  bin_pts[, `:=`(start = pos, end = pos)]
+
+  hits <- foverlaps(bin_pts, seg_dt,
+                    by.x = c("chr", "start", "end"), by.y = c("chr", "startpos", "endpos"),
+                    type = "within", mult = "first")
+
+  data.table(
+    bin     = hits$bin,
+    baf_val = hits$BAF,
+    baf_lo  = hits$q05,
+    baf_hi  = hits$q95
   )
 }
 
@@ -730,7 +846,7 @@ plotHeatmap = function(profiles, bins, order, dendrogram = TRUE,
 
 # Create single-cell profile plot for TOTAL copy number
 plotProfile = function(segments, raw, bins, sc = TRUE, linesize = 1, cell_name = NULL, ploidy = NULL,
-                       sex = c("auto", "male", "female")) {
+                       sex = c("auto", "male", "female"), cna_regions = NULL) {
   sex <- match.arg(sex)
   
   # Set theme
@@ -779,7 +895,14 @@ plotProfile = function(segments, raw, bins, sc = TRUE, linesize = 1, cell_name =
     names(colors) = c(as.character(0:5), "5+")
     
     # save plot
-    plot = ggplot(dt, aes(x = bin)) +
+    plot = ggplot(dt, aes(x = bin))
+    if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+      plot = plot +
+        geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                  ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE) +
+        scale_fill_manual(values = c(gain = "#c0392b", loss = "#2471a3"), guide = "none")
+    }
+    plot = plot +
       geom_point(aes(y = raw, color = col), size = 0.7) +
       geom_segment(aes(x = bin - 0.5, xend = bin + 0.5, y = cn_display, yend = cn_display), linewidth = linesize) +
       scale_color_manual(values = colors, drop = FALSE) +
@@ -1025,7 +1148,7 @@ plot_allele_heatmap <- function(nMajor, nMinor, bins,
       ddata <- dendro_data(dhc, type = "rectangle")
       n_samples <- length(ordered_samples)
       
-      dendro_plot <- ggplot(segment(ddata)) +
+      dendro_plot <- ggplot(ggdendro::segment(ddata)) +
         geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
         coord_flip() +
         scale_y_reverse(expand = c(0, 0)) +
@@ -1268,6 +1391,249 @@ plot_allele_profile <- function(nMajor, nMinor, bins, cell_name = NULL, ploidy =
       theme(plot.title = element_text(hjust = 0.5, size = 16))
   }
   
+  return(p)
+}
+
+#' Create per-cell BAF_noswitch profile plot (unfolded, 0-1 scale)
+#' Matches the calls_validation/Plots.R BAF_noswitch panel aesthetic: black
+#' segment = BAF_noswitch call, grey ribbon = 5-95% CI, solid grey line at
+#' 0.5 (allelic balance), dashed red lines at 1/3 and 2/3.
+#' @param baf_dt data.table from extract_baf_noswitch() (bin, baf_val, baf_lo, baf_hi)
+#' @param bins data.table with genomic coordinates (same bins used to build baf_dt)
+#' @param cell_name Optional cell name for the title
+#' @param cna_regions Optional data.table from find_cna_regions() (chr, type, start_bin,
+#'        end_bin) - drawn as background highlights so a CNA call can be checked against BAF
+#' @return ggplot object
+plot_baf_profile <- function(baf_dt, bins, cell_name = NULL, cna_regions = NULL) {
+  # Set theme to match plotProfile / plot_allele_profile
+  theme_set(theme_cowplot())
+
+  setDT(bins)
+  bins[, bin := seq_along(chr)]
+  bins[, end_cum := cumsum((end - start) + 1)]
+  bins[, start_cum := c(1, end_cum[seq_along(end_cum) - 1] + 1)]
+
+  # Make chr_bounds - same method as plotProfile / plot_allele_profile
+  chr_bounds <- bins[, list(min = min(bin), max = max(bin), chrlen_bp = sum(end - start)), by = chr]
+  chr_bounds <- chr_bounds %>%
+    mutate(mid = round(min + (max - min) / 2, 0),
+           end_bp = cumsum(as.numeric(chrlen_bp)),
+           start_bp = end_bp - chrlen_bp,
+           mid_bp = round((chrlen_bp / 2) + start_bp, 0))
+
+  # Merge consecutive bins with identical BAF/CI into segments for clean rendering
+  dt <- baf_dt[!is.na(baf_val)]
+  dt[, chr := bins$chr[bin]]
+  dt[, seg_id := rleid(chr, baf_val, baf_lo, baf_hi)]
+
+  # On 0 rows (e.g. no BAF calls for this cell), skip the by= aggregation:
+  # data.table still probes min()/max() to infer output types, which warns
+  # "no non-missing arguments" (same quirk as find_cna_regions()).
+  segments <- if (nrow(dt) == 0) {
+    data.table(seg_id = integer(0), start_bin = integer(0), end_bin = integer(0),
+              baf_val = numeric(0), baf_lo = numeric(0), baf_hi = numeric(0))
+  } else {
+    dt[, .(
+      start_bin = min(bin),
+      end_bin   = max(bin),
+      baf_val   = baf_val[1],
+      baf_lo    = baf_lo[1],
+      baf_hi    = baf_hi[1]
+    ), by = seg_id]
+  }
+
+  # Reference lines: solid grey at 0.5 (allelic balance), dashed red at 1/3 and 2/3
+  baf_hlines <- data.frame(
+    y   = c(.5, 1 / 3, 2 / 3),
+    lt  = c("solid", "dashed", "dashed"),
+    col = c("grey40", "#c0392b", "#c0392b")
+  )
+
+  p <- ggplot(segments)
+  if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+    p <- p +
+      geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE) +
+      scale_fill_manual(values = c(gain = "#c0392b", loss = "#2471a3"), guide = "none")
+  }
+  p <- p +
+    geom_hline(data = baf_hlines, aes(yintercept = y), linetype = baf_hlines$lt,
+               colour = baf_hlines$col, linewidth = .3) +
+    geom_rect(aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5,
+                  ymin = baf_lo, ymax = baf_hi),
+              alpha = .25, fill = "grey40") +
+    geom_segment(aes(x = start_bin - 0.5, xend = end_bin + 0.5,
+                      y = baf_val, yend = baf_val),
+                 linewidth = .8, colour = "black") +
+    geom_vline(xintercept = chr_bounds$max + .5, linewidth = .15, colour = "grey70") +
+    scale_x_continuous(expand = c(0, 0), breaks = chr_bounds$mid, labels = chr_bounds$chr) +
+    coord_cartesian(ylim = c(0, 1)) +
+    labs(x = NULL, y = "BAF (0-1)", title = "BAF_noswitch: 0-1 scale, 0.5 = allelic balance")
+
+  # Add title with cell name, matching plotProfile / plot_allele_profile convention
+  if (!is.null(cell_name)) {
+    p <- p + ggtitle(paste0(cell_name, "\nBAF_noswitch: 0-1 scale, 0.5 = allelic balance")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 16))
+  }
+
+  return(p)
+}
+
+#' Create per-cell raw/folded BAF profile plot (segment BAF, before
+#' switch-error correction). Matches the calls_validation/Plots.R fallback
+#' panel aesthetic: black segment = BAF call, grey ribbon = 5-95% CI, solid
+#' grey line at 0.5 (allelic balance), dashed red at 2/3 (expected folded
+#' BAF for a gain), dashed blue at 1 (expected folded BAF for a loss). Meant
+#' to sit alongside plot_baf_profile() so the corrected/uncorrected BAF can
+#' be compared directly.
+#' @param baf_dt data.table from extract_baf_raw() (bin, baf_val, baf_lo, baf_hi)
+#' @param bins data.table with genomic coordinates (same bins used to build baf_dt)
+#' @param cell_name Optional cell name for the title
+#' @param cna_regions Optional data.table from find_cna_regions() (chr, type, start_bin,
+#'        end_bin) - drawn as background highlights so a CNA call can be checked against BAF
+#' @return ggplot object
+plot_baf_raw_profile <- function(baf_dt, bins, cell_name = NULL, cna_regions = NULL) {
+  # Set theme to match plotProfile / plot_baf_profile
+  theme_set(theme_cowplot())
+
+  setDT(bins)
+  bins[, bin := seq_along(chr)]
+  bins[, end_cum := cumsum((end - start) + 1)]
+  bins[, start_cum := c(1, end_cum[seq_along(end_cum) - 1] + 1)]
+
+  # Make chr_bounds - same method as plotProfile / plot_baf_profile
+  chr_bounds <- bins[, list(min = min(bin), max = max(bin), chrlen_bp = sum(end - start)), by = chr]
+  chr_bounds <- chr_bounds %>%
+    mutate(mid = round(min + (max - min) / 2, 0),
+           end_bp = cumsum(as.numeric(chrlen_bp)),
+           start_bp = end_bp - chrlen_bp,
+           mid_bp = round((chrlen_bp / 2) + start_bp, 0))
+
+  # Merge consecutive bins with identical BAF/CI into segments for clean rendering
+  dt <- baf_dt[!is.na(baf_val)]
+  dt[, chr := bins$chr[bin]]
+  dt[, seg_id := rleid(chr, baf_val, baf_lo, baf_hi)]
+
+  segments <- if (nrow(dt) == 0) {
+    data.table(seg_id = integer(0), start_bin = integer(0), end_bin = integer(0),
+              baf_val = numeric(0), baf_lo = numeric(0), baf_hi = numeric(0))
+  } else {
+    dt[, .(
+      start_bin = min(bin),
+      end_bin   = max(bin),
+      baf_val   = baf_val[1],
+      baf_lo    = baf_lo[1],
+      baf_hi    = baf_hi[1]
+    ), by = seg_id]
+  }
+
+  # Reference lines: solid grey at 0.5 (balance), dashed red at 2/3 (expected
+  # folded BAF for a gain), dashed blue at 1 (expected folded BAF for a loss)
+  baf_hlines <- data.frame(
+    y   = c(.5, 2 / 3, 1),
+    lt  = c("solid", "dashed", "dashed"),
+    col = c("grey40", "#c0392b", "#2471a3")
+  )
+
+  p <- ggplot(segments)
+  if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+    p <- p +
+      geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE) +
+      scale_fill_manual(values = c(gain = "#c0392b", loss = "#2471a3"), guide = "none")
+  }
+  p <- p +
+    geom_hline(data = baf_hlines, aes(yintercept = y), linetype = baf_hlines$lt,
+               colour = baf_hlines$col, linewidth = .3) +
+    geom_rect(aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5,
+                  ymin = baf_lo, ymax = baf_hi),
+              alpha = .25, fill = "grey40") +
+    geom_segment(aes(x = start_bin - 0.5, xend = end_bin + 0.5,
+                      y = baf_val, yend = baf_val),
+                 linewidth = .8, colour = "black") +
+    geom_vline(xintercept = chr_bounds$max + .5, linewidth = .15, colour = "grey70") +
+    scale_x_continuous(expand = c(0, 0), breaks = chr_bounds$mid, labels = chr_bounds$chr) +
+    coord_cartesian(ylim = c(.45, 1.02)) +
+    labs(x = NULL, y = "folded BAF", title = "allele-specific run: segment BAF [90% CI]")
+
+  # Add title with cell name, matching plot_baf_profile() convention
+  if (!is.null(cell_name)) {
+    p <- p + ggtitle(paste0(cell_name, "\nallele-specific run: segment BAF [90% CI]")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 16))
+  }
+
+  return(p)
+}
+
+#' Create per-cell read-overlap profile plot along the genome
+#'
+#' Plots, per bin, how many pairs of this cell's reads overlap each other by at
+#' least the chosen threshold. Two scales are available via \code{value}:
+#'
+#' \describe{
+#'   \item{"obs_exp"}{(default) the overlap count divided by what random
+#'     placement of the same reads in the same bin would give. Comparable
+#'     across bins and cells.}
+#'   \item{"n_ov20"}{the raw pair count. NOT comparable across bins or cells -
+#'     overlapping pairs scale ~n^2 with read count, so a bin with more reads
+#'     has more overlaps regardless of copy number. Use only descriptively.}
+#' }
+#'
+#' @param ov_dt data.table with bin, n_ov20, obs_exp for ONE cell
+#' @param bins data.table with genomic coordinates
+#' @param cell_name Optional cell name for the title
+#' @param cna_regions Optional data.table from find_cna_regions() - drawn as
+#'        background highlights so overlap density can be read against a call
+#' @param value Which column to plot: "obs_exp" (default) or "n_ov20"
+#' @return ggplot object
+plot_overlap_profile <- function(ov_dt, bins, cell_name = NULL, cna_regions = NULL,
+                                 value = c("obs_exp", "n_ov20")) {
+  value <- match.arg(value)
+  theme_set(theme_cowplot())
+
+  setDT(bins)
+  bins[, bin := seq_along(chr)]
+
+  chr_bounds <- bins[, list(min = min(bin), max = max(bin), chrlen_bp = sum(end - start)), by = chr]
+  chr_bounds <- chr_bounds %>%
+    mutate(mid = round(min + (max - min) / 2, 0))
+
+  dt <- copy(ov_dt)
+  dt[, y := get(value)]
+  dt <- dt[!is.na(y)]
+
+  # obs_exp == 1 means "exactly as many overlaps as random placement gives";
+  # for the raw count there is no such reference level.
+  ref_line <- if (value == "obs_exp") 1 else NA_real_
+  ylab <- if (value == "obs_exp") "overlap obs/exp" else "read pairs overlapping"
+
+  p <- ggplot(dt)
+  if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+    p <- p +
+      geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE) +
+      scale_fill_manual(values = c(gain = "#c0392b", loss = "#2471a3"), guide = "none")
+  }
+  if (!is.na(ref_line)) {
+    p <- p + geom_hline(yintercept = ref_line, colour = "grey40", linewidth = .3)
+  }
+  p <- p +
+    geom_point(aes(x = bin, y = y), size = 0.7, colour = "grey30") +
+    geom_vline(xintercept = chr_bounds$max + .5, linewidth = .15, colour = "grey70") +
+    scale_x_continuous(expand = c(0, 0), breaks = chr_bounds$mid, labels = chr_bounds$chr) +
+    # Reads are strongly clustered, so this spans ~0 to >1000 and a linear axis
+    # puts almost every bin on the floor. log1p keeps zero-overlap bins visible
+    # (unlike log10, which drops them).
+    scale_y_continuous(trans = scales::log1p_trans(),
+                       breaks = c(0, 1, 3, 10, 30, 100, 300, 1000)) +
+    labs(x = NULL, y = ylab,
+         title = sprintf("read overlaps >=20bp per bin (%s)", value))
+
+  if (!is.null(cell_name)) {
+    p <- p + ggtitle(sprintf("%s\nread overlaps >=20bp per bin (%s)", cell_name, value)) +
+      theme(plot.title = element_text(hjust = 0.5, size = 16))
+  }
+
   return(p)
 }
 
