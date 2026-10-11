@@ -15,7 +15,9 @@ getTrackForAll <- function(bamfile,
                            doSmooth=TRUE,
                            SBDRY=NULL,
                            svinput=NULL,
-                           doSeg=TRUE)
+                           doSeg=TRUE,
+                           lRLT=NULL,
+                           readlen=c("cell","pseudobulk","none"))
 {
     if(is.null(lSe))
     {
@@ -45,7 +47,8 @@ getTrackForAll <- function(bamfile,
     if(doSmooth)
     {
         print("   ## correct for GC content")
-        lCTS <- smoothCoverageTrack(lCT=lCT,lSe=lSe,lGCT=lGCT, lNormals=lNormals)
+        lCTS <- smoothCoverageTrack(lCT=lCT,lSe=lSe,lGCT=lGCT, lNormals=lNormals,
+                                    lRLT=lRLT, readlen=readlen)
         names(lCTS) <- allchr
         gc()
     }

@@ -15,8 +15,10 @@ getTrackForAll.10XBAM <- function (bamfile,
                                    mapqFilter = 30,
                                    mc.cores = 1,
                                    pcchromosome = 0.8,
-                                   barcodes=NULL)
+                                   barcodes=NULL,
+                                   length_breaks=c(150, 250, 500, 1000))
 {
+    suppressPackageStartupMessages(require(parallel))
     if (is.null(lSe)) {
         if(is.null(window)) stop("either provide window or starts/ends")
         print("get Start-End of segments")
@@ -37,7 +39,8 @@ getTrackForAll.10XBAM <- function (bamfile,
                                             isNotPassingQualityControls = isNotPassingQualityControls,
                                             isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter,
                                             pcchromosome=pcchromosome,
-                                            barcodes = NULL)$barcodes
+                                            barcodes = NULL,
+                                            length_breaks = length_breaks)$barcodes
         # Do 10x bamfiles always have the barcode '-' when there is no barcode detected for the read?
         # If yes, should this be removed from the list of barcodes for example like below.
         # barcodes = barcodes[barcodes != "-"]
@@ -58,7 +61,8 @@ getTrackForAll.10XBAM <- function (bamfile,
                                 barcodes=barcodes,
                                 isSecondaryAlignment = isSecondaryAlignment,
                                 isNotPassingQualityControls = isNotPassingQualityControls,
-                                isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter),
+                                isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter,
+                                length_breaks = length_breaks),
         mc.cores = mc.cores)
     nCells <- length(lCT[[1]][[1]])
     lCTs <- lapply(seq_len(nCells), function(cell)
@@ -69,6 +73,10 @@ getTrackForAll.10XBAM <- function (bamfile,
         lCTS
     })
     names(lCTs) <- barcodes
+    ## per-chromosome qwidth quantiles of the kept barcodes (diagnostic to choose short_threshold)
+    qq <- do.call(rbind, lapply(lCT, function(x) x$qwidth_quantiles))
+    rownames(qq) <- allchr
+    attr(lCTs, "qwidth_quantiles") <- qq
     if(!doSeg)
         return(lCTs)
     if (is.null(lGCT))

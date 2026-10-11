@@ -33,9 +33,29 @@ run_sc_sequencing <- function(tumour_bams,
                               sc_exclude_badbins=FALSE,
                               clustering=FALSE,
                               fragments=NULL,
-                              rna_counts=NULL)
+                              rna_counts=NULL,
+                              readlen_correction=NULL,
+                              readlen_stat=c("short_fraction","mean_length"),
+                              short_threshold=NULL,
+                              readlen_by_cluster=FALSE,
+                              readlen_min_reads_per_bin=10,
+                              length_breaks=c(150,250,500,1000))
 {
     checkArguments_scs(c(as.list(environment())))
+    ## Read-length correction of the coverage on top of GC (see smoothCoverageTrack / getReadLengthTrack):
+    ##   readlen_correction: "pseudobulk" = bin-level covariate pooled across cells (default with 10X
+    ##                       barcodes), "cell" = per-track mean read length (default for bulk BAMs),
+    ##                       "none" = GC only
+    ##   readlen_stat, short_threshold, readlen_by_cluster, readlen_min_reads_per_bin: pseudobulk options
+    ##   length_breaks: read-length bands counted per bin when reading 10X BAMs ("short_fraction" needs them)
+    readlen_stat <- match.arg(readlen_stat)
+    if(is.null(readlen_correction)) readlen_correction <- if(!is.null(barcodes_10x)) "pseudobulk" else "cell"
+    readlen_correction <- match.arg(readlen_correction, c("pseudobulk","cell","none"))
+    if(readlen_correction=="pseudobulk" & is.null(barcodes_10x))
+    {
+        print("## readlen_correction='pseudobulk' needs 10X barcodes - using 'cell' (per-sample read length)")
+        readlen_correction <- "cell"
+    }
 
     ## Cell clustering via getCellGroups()
     if (clustering) {
@@ -136,10 +156,13 @@ run_sc_sequencing <- function(tumour_bams,
                                                      doSeg=FALSE,
                                                      # Percent of chromosome bins that need to have a barcode to be kept
                                                      pcchromosome = pcchromosome,
-                                                     mc.cores=MC.CORES)
+                                                     mc.cores=MC.CORES,
+                                                     length_breaks=length_breaks)
 
                 # Skip BAM files with no detected barcodes
                 if (length(lCTS.tumour) == 0) return(NULL)
+                # Per-chromosome read-length (qwidth) quantiles of the kept barcodes (to choose short_threshold)
+                qwidth_quantiles <- attr(lCTS.tumour, "qwidth_quantiles")
 
                 # If multiple bams, rename the tracks to include bamfile (sample)
 
@@ -148,12 +171,16 @@ run_sc_sequencing <- function(tumour_bams,
                 }
 
                 # Fix binsizes to match the desired binsize using treatTrack()
-                mclapply(lCTS.tumour, function(x) {
+                out <- mclapply(lCTS.tumour, function(x) {
                     list(lCTS.tumour = x,
                          nlCTS.tumour = treatTrack(lCTS = x,
                                                    window = ceiling(binsize / START_WINDOW)))
                 }, mc.cores = MC.CORES)
+                attr(out, "qwidth_quantiles") <- qwidth_quantiles
+                out
             }))
+            res$qwidth_quantiles <- lapply(res$allTracks, function(x) attr(x, "qwidth_quantiles"))
+            names(res$qwidth_quantiles) <- basename(tumour_bams)
             # Remove NULL entries (BAM files with no detected barcodes)
             res$allTracks <- Filter(Negate(is.null), res$allTracks)
             # Unlist the top layer to flatten list
@@ -241,6 +268,38 @@ run_sc_sequencing <- function(tumour_bams,
         print("## exclude Bad bins inferred from normal samples or tumour samples")
         res <- sc_excludeBadBins(res)
     }
+    ## Re-smooth when rerunning on a result produced with another read-length correction
+    if(!is.null(res$readlen_correction) &&
+       (!identical(res$readlen_correction, readlen_correction) ||
+        (readlen_correction=="pseudobulk" && !identical(res$readlen_stat, readlen_stat))))
+    {
+        print("## read-length correction settings changed - tracks will be re-smoothed")
+        res$allTracks.processed <- NULL
+    }
+    ## Bin-level read-length covariate pooled across cells (same bins as res$nlGCT), one track per cell
+    lRLT_cells <- NULL
+    res$nlRLT <- NULL
+    if(readlen_correction=="pseudobulk")
+    {
+        print(paste0("## build pseudobulk read-length track (", readlen_stat, ")"))
+        groups <- NULL
+        if(readlen_by_cluster)
+        {
+            if(is.null(res$clustering$clusters))
+                print("## readlen_by_cluster=TRUE but no clustering in res (run with clustering=TRUE) - using one global track")
+            else if(!any(names(res$allTracks) %in% names(res$clustering$clusters)))
+                print("## readlen_by_cluster=TRUE but cluster names do not match the cell names - using one global track")
+            else
+                groups <- res$clustering$clusters
+        }
+        res$nlRLT <- getReadLengthTrack(lapply(res$allTracks, function(x) x$nlCTS.tumour),
+                                        stat=readlen_stat,
+                                        short_threshold=short_threshold,
+                                        groups=groups,
+                                        min_reads_per_bin=readlen_min_reads_per_bin)
+        lRLT_cells <- lapply(seq_along(res$allTracks), function(x)
+            pickReadLengthTrack(res$nlRLT, if(is.null(names(res$allTracks))) NA else names(res$allTracks)[x]))
+    }
     if(multipcf)
     {
         print("## calculate Multipcf - multi-sample mode - do not use if samples from different tumours")
@@ -256,6 +315,8 @@ run_sc_sequencing <- function(tumour_bams,
         segmentation_alpha=segmentation_alpha,
         normalize=normalize,
         svinput=svinput,
+        lRLT=lRLT_cells,
+        readlen=readlen_correction,
         MC.CORES=MC.CORES))
     }
     else
@@ -275,7 +336,9 @@ run_sc_sequencing <- function(tumour_bams,
                                sdNormalise=0,
                                SBDRY=SBDRY,
                                svinput=if(is.null(lSVinput)) NULL else lSVinput[[x]],
-                               segmentation_alpha=segmentation_alpha)
+                               segmentation_alpha=segmentation_alpha,
+                               lRLT=if(is.null(lRLT_cells)) NULL else lRLT_cells[[x]],
+                               readlen=readlen_correction)
             },mc.cores=MC.CORES))
         }
     }
@@ -332,6 +395,13 @@ run_sc_sequencing <- function(tumour_bams,
                 timetofit=res$timetofit,
                 svinput=svinput,
                 lSVinput=lSVinput,
+                lRLT=res$nlRLT,
+                readlen_correction=readlen_correction,
+                readlen_stat=if(is.null(res$nlRLT)) NULL else attr(res$nlRLT,"stat"),
+                short_threshold=if(is.null(res$nlRLT)) NULL else attr(res$nlRLT,"short_threshold"),
+                length_breaks=length_breaks,
+                qwidth_quantiles=res$qwidth_quantiles,
+                clustering=res$clustering,
                 mode="sc")
     if(predict_refit)
     {

@@ -7,20 +7,26 @@ getLSegs.multipcf <- function(allTracks,
                               segmentation_alpha=0.01,
                               normalize=F,
                               svinput=NULL,
+                              lRLT=NULL,
+                              readlen=c("cell","pseudobulk","none"),
                               MC.CORES=1)
 {
     ## #############################################################
     suppressPackageStartupMessages(require(parallel))
     suppressPackageStartupMessages(require(copynumber))
     ## #############################################################
-    smoothAll <- function(lCTS, lSe, lGCT, lNormals, allchr, MC.CORES)
+    ## lRLT: NULL, or a list over tracks (same order as lCTS) of bin-level read-length tracks
+    smoothAll <- function(lCTS, lSe, lGCT, lNormals, allchr, MC.CORES, lRLT=NULL, readlen="cell")
     {
-        lCTSs <- parallel::mclapply(lCTS, function(lCT)
+        lCTSs <- parallel::mclapply(seq_along(lCTS), function(i)
         {
-            lCTS <- smoothCoverageTrack(lCT=lCT,lSe=lSe,lGCT=lGCT, lNormals=lNormals)
-            names(lCTS) <- allchr
-            lCTS
+            lCTS. <- smoothCoverageTrack(lCT=lCTS[[i]],lSe=lSe,lGCT=lGCT, lNormals=lNormals,
+                                         lRLT=if(is.null(lRLT)) NULL else lRLT[[i]],
+                                         readlen=readlen)
+            names(lCTS.) <- allchr
+            lCTS.
         },mc.cores=MC.CORES)
+        names(lCTSs) <- names(lCTS)
         cat("\n")
         lCTSs
     }
@@ -41,7 +47,8 @@ getLSegs.multipcf <- function(allTracks,
     }
     ## #############################################################
     print("Smoothing all tracks")
-    lCTSs <- smoothAll(lCTS,lSe, lGCT, lNormals, allchr, MC.CORES=MC.CORES)
+    lCTSs <- smoothAll(lCTS,lSe, lGCT, lNormals, allchr, MC.CORES=MC.CORES,
+                       lRLT=lRLT, readlen=match.arg(readlen))
     ## #############################################################
     runMultiPCF <- function(allT, penalties, nchr, svinput, mc.cores=1)
     {
