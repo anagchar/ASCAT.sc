@@ -37,7 +37,8 @@ launch_ui_qc <- function(res, theme = c("dark", "light"))
     breakpoints           = "Breakpoints",
     state_mode            = "Modal CN State",
     autocorr              = "Autocorrelation",
-    MSRSI_non_integerness = "Non-integerness (MSRSI)"
+    MSRSI_non_integerness = "Non-integerness (MSRSI)",
+    n_reads_total         = "Total Reads"
   )
   
   metric_help <- c(
@@ -49,7 +50,8 @@ launch_ui_qc <- function(res, theme = c("dark", "light"))
     breakpoints           = "Number of copy-number state transitions across the genome.",
     state_mode            = "Most frequent copy number state. Typically 2 for near-diploid cells.",
     autocorr              = "Lag-1 autocorrelation of segment residuals. High values suggest systematic bias.",
-    MSRSI_non_integerness = "Scaled MAD of segment deviations from integer-expected logR. Lower = more integer-like."
+    MSRSI_non_integerness = "Scaled MAD of segment deviations from integer-expected logR. Lower = more integer-like.",
+    n_reads_total         = "Total number of reads across all bins. Low counts give noisy copy-number profiles."
   )
   
   display_name <- function(col) {

@@ -124,7 +124,10 @@ getQCs <- function(res)
           ),
 
         MSRSI_non_integerness =
-          mad_scaled(seg_resid_int)
+          mad_scaled(seg_resid_int),
+
+        n_reads_total =
+          sum(bins$records, na.rm = TRUE)
       )
     })
     get_best_rho <- function(prof)
@@ -170,6 +173,11 @@ getQCs <- function(res)
     extra_qc <- do.call(rbind, extra_qc)
     res$QC_metrics <- cbind(res$QC_metrics, extra_qc)
     if("filters_data_frame"%in%names(res))
-        res$QC_metrics <- cbind(res$QC_metrics, res$filters_data_frame)
+    {
+        ## skip columns already computed above (e.g. n_reads_total)
+        fdf <- res$filters_data_frame
+        fdf <- fdf[, setdiff(names(fdf), names(res$QC_metrics)), drop = FALSE]
+        res$QC_metrics <- cbind(res$QC_metrics, fdf)
+    }
     res
 }
