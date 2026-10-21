@@ -15,8 +15,9 @@ treatNormal <- function(lCTS, window)
                           nucleotides=sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"nucleotides"])))
         if ("median_qwidth" %in% colnames(df))
             ndf$median_qwidth <- sapply(1:length(starts), function(x) median(rep(df[starts[x]:ends[x], "median_qwidth"], df[starts[x]:ends[x], "records"]), na.rm=TRUE))
-        for(i in 8:ncol(df))
-            ndf[[colnames(df)[i]]] <- sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],colnames(df)[i]]))
+        ## extra count columns are summed; median_qwidth (a median, set above) is not a count
+        for(cc in setdiff(colnames(df)[-(1:7)], "median_qwidth"))
+            ndf[[cc]] <- sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],cc]))
         ndf
     })
     names(nlCTS) <- names(lCTS)

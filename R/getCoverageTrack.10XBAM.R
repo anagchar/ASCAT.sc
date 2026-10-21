@@ -22,7 +22,7 @@ getCoverageTrack.10XBAM <- function (bamPath,
                                         IRanges(starts,ends)),
                         mapqFilter=mapqFilter,
                         tag=tag[1],
-                        what=c("qwidth"))
+                        what=c("qwidth","pos"))
     coverageTrack <- scanBam(bamPath, param = sbp)
     .guessBarcodes <- function(cT, pcchromosome=pcchromosome)
     {
@@ -30,10 +30,13 @@ getCoverageTrack.10XBAM <- function (bamPath,
         names(counts)[counts>length(cT)*pcchromosome]
     }
     if(is.null(barcodes)) barcodes <- .guessBarcodes(coverageTrack, pcchromosome = pcchromosome)
-    .countBarcodesAndNucleotides <- function(binData, barcodesUNIQUE)
+    .countBarcodesAndNucleotides <- function(binData, barcodesUNIQUE, start)
     {
-        bc <- binData$tag[[tag[1]]]
-        qw <- binData$qwidth
+        # scanBam returns a read for every window it overlaps: count each read only in the window
+        # where it starts, so a read crossing a window boundary is not counted twice
+        keep <- binData$pos >= start
+        bc <- binData$tag[[tag[1]]][keep]
+        qw <- binData$qwidth[keep]
         counts <- sapply(barcodesUNIQUE, function(b) sum(bc == b, na.rm=TRUE))
         nucleotides <- sapply(barcodesUNIQUE, function(b) sum(qw[bc == b], na.rm=TRUE))
         # per-barcode median read length
@@ -55,7 +58,7 @@ getCoverageTrack.10XBAM <- function (bamPath,
     }
     .formatOutput <- function(cT, chr, starts, ends)
     {
-        out <- lapply(cT, .countBarcodesAndNucleotides, barcodes)
+        out <- lapply(seq_along(cT), function(i) .countBarcodesAndNucleotides(cT[[i]], barcodes, starts[i]))
         out <- lapply(barcodes,
                       function(bc)
                       {

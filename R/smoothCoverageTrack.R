@@ -2,9 +2,19 @@ smoothCoverageTrack <- function(lCT,
                                 lSe,
                                 lGCT,
                                 lNormals=NULL,
+                                lRLT=NULL,
+                                readlen=c("cell","pseudobulk","none"),
                                 method=c("loess",
                                          "lowess"))
 {
+    ## readlen: read-length correction of the coverage on top of the GC loess
+    ##   "cell":       the track's own median read length per bin (median_qwidth; nucleotides/records when
+    ##                 the column is missing) as 2nd covariate; fine for bulk samples, noisy for single
+    ##                 cells (few reads per bin)
+    ##   "pseudobulk": bin-level read length lRLT (list per chromosome, same bins as lGCT) pooled across
+    ##                 cells by getReadLengthTrack(); the loess is still fitted per track
+    ##   "none":       GC-only loess (upstream behaviour)
+    readlen <- match.arg(readlen)
     allRec <- unlist(lapply(lCT,function(x) log2(x$records+1)))
     if(!is.null(lNormals))
     {
@@ -17,45 +27,63 @@ smoothCoverageTrack <- function(lCT,
     starts <- c(0,cumsum(sapply(lCT,nrow)[-c(length(lCT))]))+1
     ends <- cumsum(sapply(lCT,nrow))
 
-    # Read-length covariate: median read length per bin (median_qwidth)
-    if (all(sapply(lCT, function(x) "median_qwidth" %in% colnames(x))))
-        allReadLen <- unlist(lapply(lCT, function(x) x$median_qwidth))
-    else
+    if(readlen=="pseudobulk")
     {
-        message("smoothCoverageTrack: no median_qwidth column, using nucleotides/records as read length covariate")
-        allReadLen <- unlist(lapply(lCT, function(x) {
-            ifelse(x$records > 0, x$nucleotides / x$records, NA) # set to NA if no reads are found
-        }))
+        if(is.null(lRLT))
+        {
+            warning("smoothCoverageTrack: readlen='pseudobulk' but no lRLT given - using GC-only correction")
+            readlen <- "none"
+        }
+        else if(length(unlist(lRLT))!=length(allRec))
+            stop("smoothCoverageTrack: lRLT does not match the bins of lCT")
+    }
+    d <- data.frame(y=allRec, gc=allGC)
+    if(readlen=="pseudobulk")
+        d$rl <- unlist(lRLT)
+    if(readlen=="cell")
+    {
+        # Read-length covariate: median read length per bin (median_qwidth)
+        if (all(sapply(lCT, function(x) "median_qwidth" %in% colnames(x))))
+            d$rl <- unlist(lapply(lCT, function(x) x$median_qwidth))
+        else
+        {
+            message("smoothCoverageTrack: no median_qwidth column, using nucleotides/records as read length covariate")
+            d$rl <- unlist(lapply(lCT, function(x) {
+                ifelse(x$records > 0, x$nucleotides / x$records, NA) # set to NA if no reads are found
+            }))
+        }
     }
 
-    # Bivariate correction with GC and read length
-    valid_idx <- !is.na(allReadLen) & !is.na(allGC) & !is.na(allRec)
-    d <- data.frame(y=allRec, gc=allGC, rl=allReadLen)
+    # Loess on the bins with a coverage value, a GC value and (if used) a read length
+    valid_idx <- apply(is.finite(as.matrix(d)), 1, all)
+    form <- if(readlen=="none") y ~ gc else y ~ gc + rl
     smoothT <- myloess(LL=sum(valid_idx),
-                       y ~ gc + rl,
+                       form,
                        data=d[valid_idx,],
                        degree=2,
                        normalize=TRUE)
 
-    # Initialize with NA for invalid bins
     fitted_vals <- rep(NA, length(allRec))
     residual_vals <- rep(NA, length(allRec))
-
     fitted_vals[valid_idx] <- smoothT$fitted
     residual_vals[valid_idx] <- smoothT$residuals
 
-    # For invalid bins, use uncorrected values
-    fitted_vals[!valid_idx] <- allRec[!valid_idx]
-    residual_vals[!valid_idx] <- 0
-
-    # Bins without reads: predict at their GC and the cells's median read length
-    noread_idx = is.na(allReadLen) & !is.na(allGC) & !is.na(allRec)
-    if (any(noread_idx)) 
+    # Bins without reads ("cell" mode: no read length): predict at their GC (within the fitted GC range)
+    # and the track's median read length, so they report lower coverage than expected rather than 0
+    noread_idx = !valid_idx & is.finite(d$y) & is.finite(d$gc)
+    if (any(noread_idx))
     {
-        gcrange = range(allGC[valid_idx])
-        pred = predict(smoothT, newdata=data.frame(gc=pmin(pmax(allGC[noread_idx], gcrange[1]), gcrange[2]), rl=median(allReadLen[valid_idx])))
+        nd <- d[noread_idx, setdiff(colnames(d), "y"), drop=FALSE]
+        for(cc in colnames(nd))
+        {
+            rng <- range(d[[cc]][valid_idx])
+            nd[[cc]][!is.finite(nd[[cc]])] <- median(d[[cc]][valid_idx])
+            nd[[cc]] <- pmin(pmax(nd[[cc]], rng[1]), rng[2])
+        }
+        pred = predict(smoothT, newdata=nd)
+        pred[!is.finite(pred)] <- median(fitted_vals, na.rm=TRUE)
         fitted_vals[noread_idx] <- pred
-        residual_vals[noread_idx] <- allRec[noread_idx] - pred
+        residual_vals[noread_idx] <- d$y[noread_idx] - pred
     }
 
     # Other invalid bins (no GC or no coverage value): uncorrected values, as before

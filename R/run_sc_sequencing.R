@@ -33,9 +33,29 @@ run_sc_sequencing <- function(tumour_bams,
                               sc_exclude_badbins=FALSE,
                               clustering=FALSE,
                               fragments=NULL,
-                              rna_counts=NULL)
+                              rna_counts=NULL,
+                              readlen_correction=NULL,
+                              readlen_stat=c("median","mean"),
+                              readlen_by_cluster=FALSE,
+                              readlen_min_reads_per_bin=10)
 {
     checkArguments_scs(c(as.list(environment())))
+    ## Read-length correction of the coverage on top of GC (see smoothCoverageTrack / getReadLengthTrack):
+    ##   readlen_correction: "pseudobulk" = read length per bin pooled across cells, a copy-number-free
+    ##                       marker of Tn5 accessibility (default with 10X barcodes); "cell" = each track's
+    ##                       own median read length (default for bulk BAMs); "none" = GC only
+    ##   readlen_stat:       pooled statistic, "median" (from median_qwidth) or "mean" (nucleotides/records)
+    ##   readlen_by_cluster: FALSE = one track pooled over all cells; TRUE = one track per cluster of
+    ##                       res$clustering$clusters (clustering=TRUE); or a named vector cell -> group
+    ##   readlen_min_reads_per_bin: bins with fewer pooled reads get the genome-wide median read length
+    readlen_stat <- match.arg(readlen_stat)
+    if(is.null(readlen_correction)) readlen_correction <- if(!is.null(barcodes_10x)) "pseudobulk" else "cell"
+    readlen_correction <- match.arg(readlen_correction, c("pseudobulk","cell","none"))
+    if(readlen_correction=="pseudobulk" & is.null(barcodes_10x))
+    {
+        print("## readlen_correction='pseudobulk' needs 10X barcodes - using 'cell' (per-sample read length)")
+        readlen_correction <- "cell"
+    }
 
     ## Cell clustering via getCellGroups()
     if (clustering) {
@@ -241,6 +261,44 @@ run_sc_sequencing <- function(tumour_bams,
         print("## exclude Bad bins inferred from normal samples or tumour samples")
         res <- sc_excludeBadBins(res)
     }
+    ## Bin-level read length pooled across cells (same bins as res$nlGCT): one track, or one per group
+    lRLT_cells <- NULL
+    res$nlRLT <- NULL
+    readlen_groups <- NULL
+    if(readlen_correction=="pseudobulk")
+    {
+        if(isTRUE(readlen_by_cluster))
+        {
+            if(is.null(res$clustering$clusters))
+                print("## readlen_by_cluster=TRUE but no clustering in res (run with clustering=TRUE) - using one track for all cells")
+            else
+                readlen_groups <- res$clustering$clusters
+        }
+        else if(!isFALSE(readlen_by_cluster))
+            readlen_groups <- readlen_by_cluster
+        if(!is.null(readlen_groups) && !any(names(res$allTracks) %in% names(readlen_groups)))
+        {
+            print("## readlen_by_cluster: the group names do not match the cell names - using one track for all cells")
+            readlen_groups <- NULL
+        }
+        print(paste0("## build pseudobulk read-length track (", readlen_stat, ")"))
+        res$nlRLT <- getReadLengthTrack(lapply(res$allTracks, function(x) x$nlCTS.tumour),
+                                        stat=readlen_stat,
+                                        groups=readlen_groups,
+                                        min_reads_per_bin=readlen_min_reads_per_bin)
+        lRLT_cells <- lapply(seq_along(res$allTracks), function(x)
+            pickReadLengthTrack(res$nlRLT, if(is.null(names(res$allTracks))) NA else names(res$allTracks)[x]))
+    }
+    ## Re-smooth when rerunning on a result smoothed with other read-length settings (or before they existed)
+    readlen_settings <- list(correction=readlen_correction,
+                             stat=if(is.null(res$nlRLT)) NULL else attr(res$nlRLT, "stat"),
+                             groups=readlen_groups,
+                             min_reads_per_bin=readlen_min_reads_per_bin)
+    if(!is.null(res$allTracks.processed) && !identical(res$readlen_settings, readlen_settings))
+    {
+        print("## read-length correction settings changed - tracks will be re-smoothed")
+        res$allTracks.processed <- NULL
+    }
     if(multipcf)
     {
         print("## calculate Multipcf - multi-sample mode - do not use if samples from different tumours")
@@ -256,6 +314,8 @@ run_sc_sequencing <- function(tumour_bams,
         segmentation_alpha=segmentation_alpha,
         normalize=normalize,
         svinput=svinput,
+        lRLT=lRLT_cells,
+        readlen=readlen_correction,
         MC.CORES=MC.CORES))
     }
     else
@@ -275,7 +335,9 @@ run_sc_sequencing <- function(tumour_bams,
                                sdNormalise=0,
                                SBDRY=SBDRY,
                                svinput=if(is.null(lSVinput)) NULL else lSVinput[[x]],
-                               segmentation_alpha=segmentation_alpha)
+                               segmentation_alpha=segmentation_alpha,
+                               lRLT=if(is.null(lRLT_cells)) NULL else lRLT_cells[[x]],
+                               readlen=readlen_correction)
             },mc.cores=MC.CORES))
         }
     }
@@ -332,6 +394,9 @@ run_sc_sequencing <- function(tumour_bams,
                 timetofit=res$timetofit,
                 svinput=svinput,
                 lSVinput=lSVinput,
+                lRLT=res$nlRLT,
+                readlen_settings=readlen_settings,
+                clustering=res$clustering,
                 mode="sc")
     if(predict_refit)
     {

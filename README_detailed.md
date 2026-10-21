@@ -102,10 +102,14 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 | `smooth_sc`          | logical          | Smooth copy numbers across cells                         |
 | `normal_barcodes`    | character vector | Barcodes of diploid reference cells (10X mode)           |
 | `svinput`            | data.frame       | SV breakpoints to guide segmentation                     |
+| `readlen_correction` | character        | `"pseudobulk"` (default with `barcodes_10x`): read length per bin pooled across cells as LOESS covariate; `"cell"` (default for bulk BAMs): each track's own median read length; `"none"`: GC only |
+| `readlen_stat`       | character        | Pooled statistic: `"median"` (default, from `median_qwidth`) or `"mean"` |
+| `readlen_by_cluster` | logical / named vector | `TRUE`: one pooled track per cluster of `res$clustering$clusters`; or a named vector cell → group; `FALSE` (default): one track for all cells |
+| `readlen_min_reads_per_bin` | integer   | Bins with fewer pooled reads get the genome-wide median read length (default 10) |
 
 **What it does, step by step:**
 
-1. **Loads reference bins.** If a precomputed `binsize` is available (30 kb for hg19/hg38), loads the bundled `lSe` and `lGCT` objects. Otherwise calls `getStartsEnds()` per chromosome. Stores in `res$lSe` and `res$lGCT`.
+1. **Loads reference bins.** For `build = "hg19"` or `"hg38"` (30 kb bins) and `"mm39"` (5 kb bins), loads the bundled `lSe` and `lGCT` objects. Any other `build` is a custom genome: bins and GC content are taken from objects named `lSe` and `lGCT` in the global environment, precomputed with `getBins_lSe_GC_from_fasta()` and `load()`ed beforehand. The FASTA is never read at run time. Stores in `res$lSe` and `res$lGCT`.
 
 2. **Rebins to requested `binsize`.** Calls `treatlSe()`, `treatGCT()`, and `treatTrack()` to aggregate the fine-resolution reference bins into the user-specified window. Result stored in `res$nlSe`.
 
@@ -114,6 +118,8 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 4. **Builds a normal reference.** If `normal_bams` or `normal_barcodes` are provided, calls `combineDiploid()` to sum counts across normal samples. The normal reference is used later to subtract systematic biases.
 
 5. **Excludes bad bins.** Optionally calls `sc_excludeBadBins()` to remove bins with extreme variance across cells.
+
+   **Pooled read length.** With `readlen_correction = "pseudobulk"`, calls `getReadLengthTrack()` on the remaining bins and passes each cell's track to `smoothCoverageTrack()`. When rerun on an existing `res` smoothed with other read-length settings (or before they existed), the tracks are re-smoothed.
 
 6. **Segments the tracks.** Either jointly with `getLSegs.multipcf()` (when `multipcf=TRUE`) or individually via `segmentTrack()` / `segmentTrack_pcf()`. Segmented tracks per cell are stored in `res$allTracks.processed`.
 
@@ -141,6 +147,9 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 | `res$allProfiles_AS`      | Allele-specific profiles (if computed)         |
 | `res$results_summary`     | Table with purity, ploidy, flags per cell      |
 | `res$binsize`             | Bin size used                                  |
+| `res$lRLT`                | Pooled read length per bin (`"pseudobulk"` mode) |
+| `res$readlen_settings`    | Read-length correction settings used for smoothing |
+| `res$clustering`          | Cell clusters (when `clustering = TRUE`)       |
 
 ---
 
@@ -208,19 +217,16 @@ Copy number analysis using off-target reads from targeted/exome sequencing.
 
 ### `getCoverageTrack()` — `getCoverageTrack.R`
 
-Corrects a coverage track for GC content and read length, and optionally subtracts a normal reference, using LOESS regression.
+Counts reads per genomic bin from a BAM file.
 
-**Arguments:** `lCT` (coverage data.frames by chromosome), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference counts), `method`
+**Arguments:** `bamPath`, `chr`, `starts`, `ends`, `mapqFilter` (default 20)
 
 **What it does:**
+1. Builds a `ScanBamParam` specifying the genomic regions (one chromosome at a time) and a mapping quality filter.
+2. Calls `Rsamtools::countBam()` to count reads landing in each bin.
+3. Returns a data.frame with columns `records` (read count) and `nucleotides` (total bases) per bin.
 
-1. Log2-transforms read counts per bin: `log2(records + 1)`.
-2. If a normal reference is provided, subtracts the normal's `log2(records + 1)` (tumour-vs-normal logR), or calls `smoothNormals()` when the normals have no `records` column.
-3. Uses the median read length per bin (`median_qwidth`) as the read-length covariate. If the tracks have no `median_qwidth` column (bulk BAMs, result objects created before it existed), falls back to the mean read length `nucleotides / records` and prints a message.
-4. Fits a bivariate LOESS model, `logR ~ GC_fraction + read_length` (`degree = 2`, `normalize = TRUE`), using `myloess()` on all bins that have reads, a GC value and a coverage value. Residuals from this fit are the corrected logR values.
-5. For bins without reads, predicts the LOESS at the bin's GC (limited to the GC range of the fitted bins) and the sample's median read length, so empty bins report lower coverage than expected instead of a residual of 0. Bins without a GC or coverage value keep the uncorrected value and a residual of 0.
-
-**Returns:** The input `lCT` (list by chromosome), with two columns added to each `data.frame`: `fitted` (LOESS-fitted logR) and `smoothed` (residual = corrected logR).
+**Returns:** `data.frame` with one row per bin: `chr`, `start`, `end`, `records`, `nucleotides`.
 
 ---
 
@@ -240,7 +246,7 @@ Extracts per-barcode coverage from a 10X Genomics BAM file.
 
 1. Scans the BAM for reads tagged with the `CB` (cell barcode) tag.
 2. If `barcodes` is not provided, guesses valid barcodes by requiring each barcode to appear in at least `pcchromosome`% of bins on the chromosome.
-3. 3. For each barcode, counts reads (`records`), sums their lengths (`nucleotides`) and takes their median length (`median_qwidth`, `NA` for bins without reads) per bin.
+3. For each barcode, counts reads (`records`), sums their lengths (`nucleotides`) and takes their median length (`median_qwidth`, `NA` for bins without reads) per bin. Each read is counted once, in the bin where it starts (`pos`); `scanBam` returns a read for every bin it overlaps, so a read crossing a bin boundary would otherwise be counted twice.
 4. Returns a list indexed by barcode.
 
 **Returns:** Named list of coverage data.frames, one entry per barcode, with columns `space`, `start`, `end`, `width`, `file`, `records`, `nucleotides`, `median_qwidth`.
@@ -310,7 +316,7 @@ Lightweight utility: given a total length and a window size, returns a set of st
 
 Batch wrapper: calls `getStartsEnds()` and `gcTrack()` for all chromosomes from a FASTA file in one call. Used to precompute the bundled package data objects.
 
-**Returns:** List with `$lSe` (bin coordinates by chromosome) and `$lGCT` (GC fractions by chromosome).
+**Returns:** `NULL`. Writes `lSe_<filename_save>.<WINDOW>.Rda` (bin coordinates by chromosome) and `lGCT_<filename_save>.<WINDOW>.Rda` (GC fractions by chromosome) to `outdir`. `load()` them before calling `run_sc_sequencing()` with a custom `build`: they create the `lSe` and `lGCT` objects it uses.
 
 ---
 
@@ -395,19 +401,41 @@ Alternative GC computation using a fixed 50 bp window centred on each bin midpoi
 
 ### `smoothCoverageTrack()` — `smoothCoverageTrack.R`
 
-GC-corrects and optionally normal-subtracts a coverage track using LOESS regression.
+Corrects a coverage track for GC content and read length, and optionally subtracts a normal reference, using LOESS regression.
 
-**Arguments:** `lCT` (coverage data.frames by chromosome), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference counts), `method`
+**Arguments:** `lCT` (coverage data.frames by chromosome), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference counts), `lRLT` (bin-level read-length track from `getReadLengthTrack()`), `readlen` (`"cell"`, `"pseudobulk"` or `"none"`, default `"cell"`), `method`
 
 **What it does:**
 
-1. Log2-transforms read counts per bin: `log2(records / nucleotides)`.
-2. If a normal reference is provided, log2-transforms the normal counts and subtracts them (tumour-vs-normal logR).
-3. Fits a bivariate LOESS model: `logR ~ GC_fraction + read_length` using `myloess()`.
-4. Residuals from this fit are the GC-corrected logR values.
-5. Returns both the raw and corrected logR per bin.
+1. Log2-transforms read counts per bin: `log2(records + 1)`.
+2. If a normal reference is provided, subtracts the normal's `log2(records + 1)` (tumour-vs-normal logR), or calls `smoothNormals()` when the normals have no `records` column.
+3. Chooses the read-length covariate according to `readlen`:
+   - `"pseudobulk"`: the bin-level read length `lRLT`, pooled across cells by `getReadLengthTrack()`. Defined for every bin, so every bin enters the fit. This is the mode `run_sc_sequencing()` uses with 10X barcodes.
+   - `"cell"`: the track's own median read length per bin (`median_qwidth`). If the tracks have no `median_qwidth` column (bulk BAMs, result objects created before it existed), falls back to the mean read length `nucleotides / records` and prints a message. Precise for bulk samples, noisy for single cells (few reads per bin).
+   - `"none"`: no read-length covariate (upstream GC-only correction).
+4. Fits a LOESS model per track, `logR ~ GC_fraction + read_length` (or `logR ~ GC_fraction` for `"none"`; `degree = 2`, `normalize = TRUE`), using `myloess()` on all bins that have a coverage value, a GC value and a read length. Residuals from this fit are the corrected logR values.
+5. For bins left out of the fit because they have no reads (only in `"cell"` mode), predicts the LOESS at the bin's GC (limited to the GC range of the fitted bins) and the track's median read length, so empty bins report lower coverage than expected instead of a residual of 0. Bins without a GC or coverage value keep the uncorrected value and a residual of 0.
 
-**Returns:** Named list by chromosome; each element is a `data.frame` with columns `start`, `end`, `logr` (raw), `logr.fit` (LOESS-fitted), `logr.corrected` (residual).
+**Returns:** The input `lCT` (list by chromosome), with two columns added to each `data.frame`: `fitted` (LOESS-fitted logR) and `smoothed` (residual = corrected logR).
+
+---
+
+### `getReadLengthTrack()` — `getReadLengthTrack.R`
+
+Builds the bin-level read-length covariate used by `smoothCoverageTrack(readlen = "pseudobulk")`, pooled across cells.
+
+Tn5 cuts more in open chromatin, so an accessible bin gets more reads, and shorter ones (nucleosome-free fragments), in every cell of that cell type; the extra reads look like a copy-number gain. The read length of a bin marks the accessibility without carrying the copy number, because a gain multiplies the short and the long reads of a bin alike. A single cell has too few reads per bin for its own median to be informative, so the median is pooled across cells. Pooled read *counts* are deliberately not used: they also contain the clonal copy-number changes shared by the tumour cells, which the LOESS would then remove from every cell.
+
+**Arguments:** `lTracks` (named list over cells of per-chromosome coverage data.frames, i.e. `nlCTS.tumour`), `stat` (`"median"` or `"mean"`), `groups` (optional named vector cell → group), `min_reads_per_bin` (default 10), `verbose`
+
+**What it does:**
+
+1. `stat = "median"`: per bin, the records-weighted median over cells of the per-cell bin medians (`median_qwidth`), i.e. `median(rep(median_qwidth, records))` over all cells. Falls back to `"mean"` when the tracks have no `median_qwidth` column.
+2. `stat = "mean"`: pooled `nucleotides / records`.
+3. Bins with fewer than `min_reads_per_bin` pooled reads get the genome-wide median value.
+4. With `groups`, one track per group (e.g. per cluster); a group whose median pooled reads per bin is below `5 * min_reads_per_bin` uses the global track. `pickReadLengthTrack(nlRLT, cell)` returns the track of one cell.
+
+**Returns:** List by chromosome of numeric vectors (same shape as `lGCT`) with attributes `stat`, `n_imputed`, `median_depth`, `n_cells`; with `groups`, a list of such tracks with attributes `global` and `groups`.
 
 ---
 
