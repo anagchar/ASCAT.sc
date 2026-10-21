@@ -1,6 +1,7 @@
 # ASCAT.sc — Detailed Function Reference
 
 **ASCAT.sc** (Allele-Specific Copy number Analysis of Tumours — single cell) is an R package for LogR-based copy number calling from:
+
 - Single-cell DNA sequencing (shallow or deep)
 - Shallow-coverage bulk sequencing
 - Targeted/exome sequencing (off-target reads)
@@ -83,24 +84,24 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 
 **Arguments:**
 
-| Argument | Type | Description |
-|---|---|---|
-| `tumour_bams` | character vector | Paths to tumour BAM files, or a single 10X BAM |
-| `sex` | character vector | `"male"` or `"female"` per sample |
-| `allchr` | character vector | Chromosomes to analyse (e.g. `paste0("chr", 1:22)`) |
-| `purs` | numeric vector | Purity values to search (e.g. `seq(0.1, 1, 0.01)`) |
-| `ploidies` | numeric vector | Ploidy values to search (e.g. `seq(1.7, 5, 0.01)`) |
-| `maxtumourpsi` | numeric | Maximum allowed tumour ploidy |
-| `binsize` | integer | Bin size in bp (e.g. `30000`, `500000`) |
-| `segmentation_alpha` | numeric | CBS significance threshold (smaller = fewer breakpoints) |
-| `barcodes_10x` | character vector | Cell barcodes for 10X BAM mode |
-| `normal_bams` | character vector | Normal BAM paths for reference construction |
-| `outdir` | character | Output directory |
-| `projectname` | character | Prefix for output files |
-| `multipcf` | logical | Use joint multi-sample PCF segmentation |
-| `smooth_sc` | logical | Smooth copy numbers across cells |
-| `normal_barcodes` | character vector | Barcodes of diploid reference cells (10X mode) |
-| `svinput` | data.frame | SV breakpoints to guide segmentation |
+| Argument             | Type             | Description                                              |
+| -------------------- | ---------------- | -------------------------------------------------------- |
+| `tumour_bams`        | character vector | Paths to tumour BAM files, or a single 10X BAM           |
+| `sex`                | character vector | `"male"` or `"female"` per sample                        |
+| `allchr`             | character vector | Chromosomes to analyse (e.g. `paste0("chr", 1:22)`)      |
+| `purs`               | numeric vector   | Purity values to search (e.g. `seq(0.1, 1, 0.01)`)       |
+| `ploidies`           | numeric vector   | Ploidy values to search (e.g. `seq(1.7, 5, 0.01)`)       |
+| `maxtumourpsi`       | numeric          | Maximum allowed tumour ploidy                            |
+| `binsize`            | integer          | Bin size in bp (e.g. `30000`, `500000`)                  |
+| `segmentation_alpha` | numeric          | CBS significance threshold (smaller = fewer breakpoints) |
+| `barcodes_10x`       | character vector | Cell barcodes for 10X BAM mode                           |
+| `normal_bams`        | character vector | Normal BAM paths for reference construction              |
+| `outdir`             | character        | Output directory                                         |
+| `projectname`        | character        | Prefix for output files                                  |
+| `multipcf`           | logical          | Use joint multi-sample PCF segmentation                  |
+| `smooth_sc`          | logical          | Smooth copy numbers across cells                         |
+| `normal_barcodes`    | character vector | Barcodes of diploid reference cells (10X mode)           |
+| `svinput`            | data.frame       | SV breakpoints to guide segmentation                     |
 
 **What it does, step by step:**
 
@@ -128,18 +129,18 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 
 **Returns:** A named list `res` with the following main slots:
 
-| Slot | Description |
-|---|---|
-| `res$lSe` | Reference bin coordinates (list by chromosome) |
-| `res$nlSe` | Rebinned coordinates at analysis resolution |
-| `res$lGCT` | GC content per bin (list by chromosome) |
-| `res$allTracks` | Raw per-cell coverage tracks |
-| `res$allTracks.processed` | Smoothed and segmented tracks per cell |
-| `res$allSols` | Best purity/ploidy solution per cell |
-| `res$allProfiles` | Copy number profile per cell (data.frame) |
-| `res$allProfiles_AS` | Allele-specific profiles (if computed) |
-| `res$results_summary` | Table with purity, ploidy, flags per cell |
-| `res$binsize` | Bin size used |
+| Slot                      | Description                                    |
+| ------------------------- | ---------------------------------------------- |
+| `res$lSe`                 | Reference bin coordinates (list by chromosome) |
+| `res$nlSe`                | Rebinned coordinates at analysis resolution    |
+| `res$lGCT`                | GC content per bin (list by chromosome)        |
+| `res$allTracks`           | Raw per-cell coverage tracks                   |
+| `res$allTracks.processed` | Smoothed and segmented tracks per cell         |
+| `res$allSols`             | Best purity/ploidy solution per cell           |
+| `res$allProfiles`         | Copy number profile per cell (data.frame)      |
+| `res$allProfiles_AS`      | Allele-specific profiles (if computed)         |
+| `res$results_summary`     | Table with purity, ploidy, flags per cell      |
+| `res$binsize`             | Bin size used                                  |
 
 ---
 
@@ -149,17 +150,17 @@ End-to-end pipeline for copy number calling from Illumina methylation arrays.
 
 **Arguments:**
 
-| Argument | Type | Description |
-|---|---|---|
-| `idat_dir` | character | Directory containing IDAT files |
-| `rgSet` | RGChannelSet | Pre-loaded minfi object (alternative to `idat_dir`) |
-| `sex` | character vector | `"male"` / `"female"` per sample |
-| `purs` | numeric vector | Purity search grid |
-| `ploidies` | numeric vector | Ploidy search grid |
-| `platform` | character | `"450K"`, `"epicv1"`, or `"epicv2"` |
-| `conumee` | logical | Use conumee binning instead of custom bins |
-| `outdir` | character | Output directory |
-| `projectname` | character | Output file prefix |
+| Argument      | Type             | Description                                         |
+| ------------- | ---------------- | --------------------------------------------------- |
+| `idat_dir`    | character        | Directory containing IDAT files                     |
+| `rgSet`       | RGChannelSet     | Pre-loaded minfi object (alternative to `idat_dir`) |
+| `sex`         | character vector | `"male"` / `"female"` per sample                    |
+| `purs`        | numeric vector   | Purity search grid                                  |
+| `ploidies`    | numeric vector   | Ploidy search grid                                  |
+| `platform`    | character        | `"450K"`, `"epicv1"`, or `"epicv2"`                 |
+| `conumee`     | logical          | Use conumee binning instead of custom bins          |
+| `outdir`      | character        | Output directory                                    |
+| `projectname` | character        | Output file prefix                                  |
 
 **What it does, step by step:**
 
@@ -187,15 +188,15 @@ Copy number analysis using off-target reads from targeted/exome sequencing.
 
 **Arguments:**
 
-| Argument | Type | Description |
-|---|---|---|
-| `tumour_bams` | character vector | Tumour BAM paths |
-| `bed_file` | character | BED file of capture targets (to exclude on-target reads) |
-| `normal_bams` | character vector | Normal BAM paths |
-| `purs` | numeric vector | Purity search grid |
-| `ploidies` | numeric vector | Ploidy search grid |
-| `multipcf` | logical | Joint segmentation |
-| `outdir` / `projectname` | character | Output settings |
+| Argument                 | Type             | Description                                              |
+| ------------------------ | ---------------- | -------------------------------------------------------- |
+| `tumour_bams`            | character vector | Tumour BAM paths                                         |
+| `bed_file`               | character        | BED file of capture targets (to exclude on-target reads) |
+| `normal_bams`            | character vector | Normal BAM paths                                         |
+| `purs`                   | numeric vector   | Purity search grid                                       |
+| `ploidies`               | numeric vector   | Ploidy search grid                                       |
+| `multipcf`               | logical          | Joint segmentation                                       |
+| `outdir` / `projectname` | character        | Output settings                                          |
 
 **What it does:** Identical pipeline to `run_sc_sequencing()` but with an extra initial step that maps the BED file to bins and removes all reads overlapping capture targets (`ts_getExcludeFromBedfile()`, `ts_removeOnTargets()`). This ensures only uninformative off-target reads drive the copy number signal, avoiding capture bias.
 
@@ -207,16 +208,19 @@ Copy number analysis using off-target reads from targeted/exome sequencing.
 
 ### `getCoverageTrack()` — `getCoverageTrack.R`
 
-Counts reads per genomic bin from a BAM file.
+Corrects a coverage track for GC content and read length, and optionally subtracts a normal reference, using LOESS regression.
 
-**Arguments:** `bamPath`, `chr`, `starts`, `ends`, `mapqFilter` (default 20)
+**Arguments:** `lCT` (coverage data.frames by chromosome), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference counts), `method`
 
 **What it does:**
-1. Builds a `ScanBamParam` specifying the genomic regions (one chromosome at a time) and a mapping quality filter.
-2. Calls `Rsamtools::countBam()` to count reads landing in each bin.
-3. Returns a data.frame with columns `records` (read count) and `nucleotides` (total bases) per bin.
 
-**Returns:** `data.frame` with one row per bin: `chr`, `start`, `end`, `records`, `nucleotides`.
+1. Log2-transforms read counts per bin: `log2(records + 1)`.
+2. If a normal reference is provided, subtracts the normal's `log2(records + 1)` (tumour-vs-normal logR), or calls `smoothNormals()` when the normals have no `records` column.
+3. Uses the median read length per bin (`median_qwidth`) as the read-length covariate. If the tracks have no `median_qwidth` column (bulk BAMs, result objects created before it existed), falls back to the mean read length `nucleotides / records` and prints a message.
+4. Fits a bivariate LOESS model, `logR ~ GC_fraction + read_length` (`degree = 2`, `normalize = TRUE`), using `myloess()` on all bins that have reads, a GC value and a coverage value. Residuals from this fit are the corrected logR values.
+5. For bins without reads, predicts the LOESS at the bin's GC (limited to the GC range of the fitted bins) and the sample's median read length, so empty bins report lower coverage than expected instead of a residual of 0. Bins without a GC or coverage value keep the uncorrected value and a residual of 0.
+
+**Returns:** The input `lCT` (list by chromosome), with two columns added to each `data.frame`: `fitted` (LOESS-fitted logR) and `smoothed` (residual = corrected logR).
 
 ---
 
@@ -233,12 +237,13 @@ Extracts per-barcode coverage from a 10X Genomics BAM file.
 **Arguments:** `bamPath`, `chr`, `starts`, `ends`, `barcodes`, `pcchromosome`
 
 **What it does:**
+
 1. Scans the BAM for reads tagged with the `CB` (cell barcode) tag.
 2. If `barcodes` is not provided, guesses valid barcodes by requiring each barcode to appear in at least `pcchromosome`% of bins on the chromosome.
-3. For each barcode, counts reads and nucleotides per bin.
+3. 3. For each barcode, counts reads (`records`), sums their lengths (`nucleotides`) and takes their median length (`median_qwidth`, `NA` for bins without reads) per bin.
 4. Returns a list indexed by barcode.
 
-**Returns:** Named list of coverage data.frames, one entry per barcode.
+**Returns:** Named list of coverage data.frames, one entry per barcode, with columns `space`, `start`, `end`, `width`, `file`, `records`, `nucleotides`, `median_qwidth`.
 
 ---
 
@@ -249,6 +254,7 @@ Complete single-sample processing: coverage extraction + GC correction + segment
 **Arguments:** `bamfile`, `window`, `lCT` (pre-loaded counts), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference), `segmentation_alpha`, `svinput`, `doSmooth`, `doSeg`
 
 **What it does:**
+
 1. Calls `getCoverageTrack()` per chromosome if `lCT` not provided.
 2. Calls `smoothCoverageTrack()` for GC/normal correction.
 3. Calls `segmentTrack()` (or PCF variant) per chromosome.
@@ -281,6 +287,7 @@ Generates genomic bin coordinates for a single chromosome.
 **Arguments:** `window` (bin size in bp), `chr`, `lengthChr`, `dna` (reference sequence), `pathWindows`, `excludebed`, `centromeres`
 
 **What it does:**
+
 1. Divides the chromosome length into non-overlapping windows of size `window`.
 2. If a BED file of regions to exclude is provided, removes bins overlapping those regions.
 3. Calls `removeCentromeres()` to drop centromere bins.
@@ -368,6 +375,7 @@ Computes GC content per bin from a reference FASTA.
 **Arguments:** `chr`, `starts`, `ends`, `dna`, `window` (sub-window within bin for GC estimation), `starts.exclude`, `ends.exclude`
 
 **What it does:**
+
 1. For each bin, extracts a central sub-window of the reference sequence.
 2. Counts G and C bases.
 3. Divides by sub-window length to get GC fraction.
@@ -392,6 +400,7 @@ GC-corrects and optionally normal-subtracts a coverage track using LOESS regress
 **Arguments:** `lCT` (coverage data.frames by chromosome), `lSe` (bin coords), `lGCT` (GC fractions), `lNormals` (normal reference counts), `method`
 
 **What it does:**
+
 1. Log2-transforms read counts per bin: `log2(records / nucleotides)`.
 2. If a normal reference is provided, log2-transforms the normal counts and subtracts them (tumour-vs-normal logR).
 3. Fits a bivariate LOESS model: `logR ~ GC_fraction + read_length` using `myloess()`.
@@ -424,11 +433,11 @@ Aggregates per-fine-bin GC values to larger windows by taking the mean GC within
 
 ### `treatTrack()` — `treatTrack.R`
 
-Aggregates raw coverage counts to larger bins by summing reads and nucleotides within each window.
+Aggregates raw coverage counts to larger bins by summing reads and nucleotides within each window. If the tracks have a `median_qwidth` column, the window medians are combined with a records-weighted median (each window's median counted once per read in that window), an approximation of the median of all reads in the bin; medians cannot be summed. `treatNormal()` does the same for normal tracks and additionally sums every further column (8th onwards) except `median_qwidth`.
 
 **Arguments:** `lCTS` (list of coverage data.frames by chromosome), `window`
 
-**Returns:** Rebinned list of coverage data.frames with summed `records` and `nucleotides`.
+**Returns:** Rebinned list of coverage data.frames with summed `records` and `nucleotides`, plus the weighted-median `median_qwidth` when present.
 
 ---
 
@@ -461,6 +470,7 @@ Segments a single-chromosome logR track using Circular Binary Segmentation (CBS)
 **Arguments:** `covtrack` (logR vector), `chr`, `starts` (bin positions), `sd` (noise estimate), `min.width` (min segment length), `ALPHA` (CBS significance), `SBDRY` (pre-computed segment boundaries)
 
 **What it does:**
+
 1. Creates a `CNA` object (from the `DNAcopy` package).
 2. Applies `smooth.CNA()` to reduce outlier influence.
 3. Calls `DNAcopy::segment()` with the specified `alpha` threshold and precomputed `SBDRY` boundaries for speed.
@@ -495,6 +505,7 @@ Joint multi-sample segmentation: segments all cells simultaneously using shared 
 **Arguments:** `allTracks` (list of raw coverage tracks per cell), `lCTS`, `lSe`, `lGCT`, `lNormals`, `segmentation_alpha`, `normalize`, `svinput`
 
 **What it does:**
+
 1. For each chromosome, stacks the logR tracks of all cells into a matrix.
 2. Calls `copynumber::multipcf()`, which finds breakpoints shared across samples, improving sensitivity in single-cell data.
 3. Applies original bin coordinates to the output.
@@ -512,6 +523,7 @@ Guides PCF segmentation with known SV breakpoints.
 **Arguments:** `tmpdata` (logR matrix), `svinput` (data.frame of SV breakpoints with `chr`, `pos`), `penalties`
 
 **What it does:**
+
 1. Finds bins closest to each SV breakpoint.
 2. Splits the logR matrix at those positions.
 3. Runs `multipcf()` independently on each fragment.
@@ -530,6 +542,7 @@ Core optimisation: finds the best purity and ploidy by minimising copy number fi
 **Arguments:** `tracksSingle` (processed track for one cell/sample), `purs`, `ploidies`, `forcepurity`, `maxTumourPhi`, `distance`, `ismale`, `isPON`, `gamma`
 
 **What it does:**
+
 1. Normalises the track to zero mean (`normaliseByPloidy()`).
 2. Calls `buildDistanceMatrix()` to compute the fit error for every (purity, ploidy) combination.
 3. Calls `findLocalMinima()` to identify the top candidate solutions.
@@ -537,6 +550,7 @@ Core optimisation: finds the best purity and ploidy by minimising copy number fi
 5. Returns the minimum-error valid solution.
 
 **Returns:** List with:
+
 - `$rho` — best purity
 - `$psi` — best ploidy
 - `$distance` — error value at best solution
@@ -553,6 +567,7 @@ Constructs the purity × ploidy error matrix.
 **Arguments:** `meansSeg` (segment means), `weights` (segment sizes), `purs`, `ploidies`, `maxTumourPhi`, `distance`, `gamma`, `sds`
 
 **What it does:**
+
 1. Iterates over all combinations of `purs` and `ploidies`.
 2. Skips combinations where tumour ploidy (from `getTumourPhi()`) exceeds `maxTumourPhi`.
 3. For each valid combination, calls `geterrors()` to compute the weighted fit error.
@@ -569,6 +584,7 @@ Computes the goodness-of-fit between observed segment logR values and expected i
 **Arguments:** `rho` (purity), `phi` (ploidy), `meansSeg` (segment mean logR values), `weights` (segment lengths), `distance` (`"mse"` or `"statistical"`)
 
 **What it does:**
+
 1. Transforms each segment's mean logR to copy number using `transform_bulk2tumour()`.
 2. Rounds to the nearest integer.
 3. Computes the weighted sum of squared residuals between the observed logR and the expected logR for that integer CN.
@@ -621,6 +637,7 @@ Identifies local minima in the purity × ploidy error matrix.
 **Arguments:** `mat` (error matrix), `N` (number of top minima to return)
 
 **What it does:**
+
 1. For each cell in the matrix, checks whether it is smaller than all 8 neighbours (Moore neighbourhood).
 2. Clusters nearby minima that are within a proximity threshold.
 3. Returns the top `N` by error value.
@@ -650,6 +667,7 @@ Fits a copy number profile for a given purity and ploidy.
 **Arguments:** `tracksSingle`, `purity`, `ploidy`, `ismale`, `isPON`, `gamma`, `ismedian`, `gridsearch`
 
 **What it does:**
+
 1. Normalises the track to zero mean.
 2. For each segmented region on each chromosome, extracts the mean and standard deviation of the raw logR values within the segment boundaries.
 3. Applies `transform_bulk2tumour()` to convert segment mean logR to copy number.
@@ -669,16 +687,16 @@ Formats the output of `fitProfile()` into a standardised flat data.frame.
 
 **Returns:** `data.frame` with columns:
 
-| Column | Description |
-|---|---|
-| `chromosome` | Chromosome name |
-| `start` | Segment start position (bp) |
-| `end` | Segment end position (bp) |
-| `num.mark` | Number of bins in segment |
-| `total_copy_number` | Rounded integer copy number |
-| `total_copy_number_logr` | Non-integer fitted CN |
-| `logr` | Observed mean logR of segment |
-| `logr.sd` | Standard deviation of logR within segment |
+| Column                   | Description                               |
+| ------------------------ | ----------------------------------------- |
+| `chromosome`             | Chromosome name                           |
+| `start`                  | Segment start position (bp)               |
+| `end`                    | Segment end position (bp)                 |
+| `num.mark`               | Number of bins in segment                 |
+| `total_copy_number`      | Rounded integer copy number               |
+| `total_copy_number_logr` | Non-integer fitted CN                     |
+| `logr`                   | Observed mean logR of segment             |
+| `logr.sd`                | Standard deviation of logR within segment |
 
 ---
 
@@ -713,6 +731,7 @@ Derives allele-specific (phased) copy numbers from SNP data.
 **Arguments:** `res`, `path_to_phases` (file with phasing information), `list_ac_counts_paths` (paths to allelic count files), `purs`, `ploidies`, `outdir`, `projectname`
 
 **What it does:**
+
 1. Reads phasing data: for each heterozygous SNP, records which haplotype (0|1 or 1|0) carries the reference allele.
 2. Reads allelic count files (VCF-like format with reference and alternative allele counts per SNP per cell).
 3. Merges allelic counts with phasing information to assign counts to haplotype A or B.
@@ -730,6 +749,7 @@ Smooths allele-specific copy numbers across multiple cells.
 **Arguments:** `res`, `mc.cores`
 
 **What it does:**
+
 1. Across all cells, collects BAF and total CN estimates per segment.
 2. Fits a mixture model (EM) where each component corresponds to a valid integer allele combination (e.g. 1+1, 2+0, 2+1, etc.).
 3. Assigns each segment to the most probable allele combination.
@@ -748,6 +768,7 @@ Identifies low-quality cells to exclude from downstream analysis.
 **Arguments:** `res`, `probs` (quantile thresholds), `threshold_extra_noise`, `outdir`
 
 **What it does:**
+
 1. **Read depth filter:** Computes total reads per cell. Cells below the low-depth threshold are flagged.
 2. **Noise filter:** For each cell, computes the logR noise as the standard deviation of consecutive bin differences. Cells with noise above a LOESS-fitted upper envelope are flagged.
 3. **Ambiguity filter:** Cells where `searchGrid()` set the `ambiguous` flag (multiple competing solutions) are flagged.
@@ -764,6 +785,7 @@ Removes systematically unreliable bins from the analysis.
 **Arguments:** `res`
 
 **What it does:**
+
 1. Across all cells, computes the variance of each bin's logR.
 2. Ranks bins by variance.
 3. Removes bins in the top and bottom decile (extreme variance likely indicates mappability artefacts or segmental duplications).
@@ -779,6 +801,7 @@ Identifies cells that are likely normal diploid, for use as a reference.
 **Arguments:** `res`, `ploidy_range` (acceptable ploidy window around 2.0), `exclude_ambiguous`, `min_diploid_fraction`
 
 **What it does:**
+
 1. Selects cells with ploidy within `ploidy_range` of 2.0.
 2. Optionally excludes cells flagged as `ambiguous` by `searchGrid()`.
 3. For each remaining cell, computes the fraction of the genome at CN = 2.
@@ -795,6 +818,7 @@ Statistical bin filtering based on cross-sample consistency.
 **Arguments:** `allTracks`, `logr`, `lSe`, `fraction`, `k`
 
 **What it does:**
+
 1. Computes the median logR per bin across all cells.
 2. Computes the variability (IQR or SD) of each bin across cells.
 3. Flags bins in the extreme `fraction` tails of the median distribution.
@@ -825,6 +849,7 @@ Machine-learning-guided solution selection using a pre-trained XGBoost model.
 **Arguments:** `res`, `ismedian`, `gamma`
 
 **What it does:**
+
 1. Loads a pre-trained XGBoost model bundled with the package (trained on manually reviewed copy number profiles).
 2. For each cell, extracts the top N local minima from the purity/ploidy error landscape.
 3. Calls `get_fit_features()` to compute features for each candidate solution.
@@ -849,6 +874,7 @@ Extracts numerical features from a copy number profile for ML scoring.
 **Arguments:** `fit_cn` (profile data.frame from `getProfile()`)
 
 **Features computed:**
+
 - Proportion of genome at each integer CN state (0, 1, 2, 3, 4, 5, 6, >6, <0)
 - Median, 5th, and 95th percentiles of the logR distribution
 - Deviation between observed logR and expected logR for the rounded CN
@@ -865,6 +891,7 @@ Manual refit using user-specified known copy numbers in two reference segments.
 **Arguments:** `track`, `solution`, `chr1`, `ind1`, `n1` (known CN at region 1), `chr2`, `ind2`, `n2` (known CN at region 2), `gridpur`, `gridpl`
 
 **What it does:**
+
 1. From the observed logR at the two reference segments and their known integer CN values, algebraically solves for the implied purity and ploidy.
 2. Runs `searchGrid()` in a narrow window around the computed point.
 
@@ -917,6 +944,7 @@ Derives probe-level logR from total methylation intensity using Panel of Normals
 **Arguments:** `totalintensity` (matrix: probes × samples), `totalintensityNormalM` (male normal matrix), `totalintensityNormalF` (female normal matrix), `sex`, `annot` (probe annotation), `GAMMA`
 
 **What it does:**
+
 1. For each tumour sample, selects sex-matched normal references.
 2. Fits a linear model: `log2(tumour_intensity) ~ log2(normal_intensities)`.
 3. Iteratively re-fits excluding probes with high residuals (outlier probes).
@@ -934,6 +962,7 @@ Builds a Panel of Normals from a directory of normal IDAT files.
 **Arguments:** `idat_dir`, `allchr`, `GAMMA`
 
 **What it does:**
+
 1. Reads all IDAT files in the directory.
 2. Preprocesses and computes total intensity per probe.
 3. Infers sex of each sample.
@@ -951,6 +980,7 @@ Bins and smooths probe-level methylation logR into genomic windows.
 **Arguments:** `logr` (probe-level vector), `starts`, `ends` (probe positions), `step` (bin size), `is_isolength` (equal bin length vs. equal probe count)
 
 **What it does:**
+
 1. Divides probes into bins by position.
 2. For each bin, computes the median logR across probes.
 3. Merges bins with fewer than a minimum number of probes into adjacent bins.
@@ -987,6 +1017,7 @@ Robust winsorisation of methylation logR to reduce the influence of extreme outl
 **Arguments:** `x` (logR vector), `apply_wins` (logical)
 
 **What it does:**
+
 1. Applies a running median filter.
 2. Computes MAD (median absolute deviation) per local window.
 3. Clips values beyond median ± k×MAD using asymmetric thresholds (allowing for natural copy number gains).
@@ -1074,6 +1105,7 @@ Master output function: generates all plots and files for a complete analysis.
 **Arguments:** `res`, `outdir`, `projectname`, `is_pdf`, `rainbowChr`
 
 **What it does:**
+
 1. Creates output subdirectories.
 2. For each cell/sample, calls `plotSolution()` and saves as PNG or PDF.
 3. Writes per-cell CN profiles to TSV via `writeProfile()`.
@@ -1092,6 +1124,7 @@ Generates a genome-wide copy number plot for one sample.
 **Arguments:** `tracksSingle`, `purity`, `ploidy`, `ylim`, `gamma`, `ismale`, `allchr`, `rainbowChr`, `svinput`
 
 **What it produces:**
+
 - X-axis: genomic position (cumulative across chromosomes)
 - Y-axis: LogR value
 - Grey dots: individual bin logR values
@@ -1112,6 +1145,7 @@ Heatmap of the purity × ploidy error landscape ("sunrise plot").
 **Arguments:** `solution` (output of `searchGrid()`), `localMinima`, `N`
 
 **What it produces:**
+
 - Heatmap where colour encodes the fit error at each (purity, ploidy) combination
 - Low-error regions appear as "valleys"
 - Best solution marked with a cross
@@ -1128,6 +1162,7 @@ Plots allele-specific copy numbers across the genome.
 **Arguments:** `t` (data.frame with `nA`, `nB`, `chr`, `start`, `end`, `fitted`)
 
 **What it produces:**
+
 - Dark blue line: minor allele (nB) copy number per segment
 - Orange line: major allele (nA) copy number per segment
 - Segments are plotted at genomic position with chromosome boundaries
@@ -1143,6 +1178,7 @@ Hierarchical clustering heatmap of the copy number matrix across all cells.
 **Arguments:** `mat` (CN matrix: bins × cells), `fundist` (distance function), `funclust` (clustering function), `centromeres`
 
 **What it produces:**
+
 - Rows: cells (clustered by CN similarity)
 - Columns: genomic bins
 - Colour: red = deletion, white = diploid, blue = amplification
@@ -1159,6 +1195,7 @@ Genome-wide stacked area plot showing frequency of gains and losses across all c
 **Arguments:** `mat` (CN matrix), `scaleY`, `centromeres`
 
 **What it produces:**
+
 - Stacked bars per genomic position
 - Blue: proportion of cells with loss (CN < 2)
 - Red: proportion of cells with gain (CN > 2)
@@ -1197,6 +1234,7 @@ Writes a single sample's copy number profile to a tab-separated file.
 Validates all arguments to `run_sc_sequencing()` before the analysis starts.
 
 **Checks performed:**
+
 - All BAM files exist on disk
 - `sex` vector matches length of `tumour_bams`
 - `outdir` exists and is writable
@@ -1262,6 +1300,7 @@ Deprecated predecessor to `searchGrid()`. Kept for backward compatibility. Uses 
 ### `res$lSe` — Reference Bin Coordinates
 
 A named list where each element corresponds to one chromosome. Each element is a list with:
+
 - `$starts` — integer vector of bin start positions (bp)
 - `$ends` — integer vector of bin end positions (bp)
 
@@ -1284,15 +1323,18 @@ Named list by chromosome; each element is a numeric vector of GC fractions, one 
 ### `res$allTracks` — Raw Coverage Tracks
 
 Named list by sample/cell. Each element is itself a list by chromosome, where each chromosome entry is a `data.frame` with:
+
 - `start`, `end` — bin positions
 - `records` — read count
 - `nucleotides` — total bases counted
+- `median_qwidth` — median read length (bp) of the reads in the bin; `NA` if the bin has no reads. 10X (barcode) mode only: computed from the individual reads in `getCoverageTrack.10XBAM()`, then combined across merged windows by `treatTrack()` with a records-weighted median. Bulk tracks from `getCoverageTrack()` do not have it, because `countBam()` does not return individual read lengths.
 
 ---
 
 ### `res$allTracks.processed` — Smoothed and Segmented Tracks
 
 Named list by sample/cell. Each element is a list by chromosome, containing:
+
 - `logr` — GC-corrected logR per bin
 - `lSegs` — segmentation result (from CBS or PCF)
 - `lSegs$seg.mean` — mean logR per segment
@@ -1305,6 +1347,7 @@ This is the key input to `searchGrid()` and `fitProfile()`.
 ### `res$allSols` — Solutions
 
 Named list by sample/cell. Each element contains:
+
 - `$rho` — purity (0–1)
 - `$psi` — ploidy (average, mixture of tumour and normal)
 - `$distance` — fit error
@@ -1326,6 +1369,7 @@ This is the primary output of the pipeline.
 ### `res$results_summary` — Summary Table
 
 `data.frame` with one row per sample/cell and columns:
+
 - `sample` — sample/cell name
 - `purity` — estimated purity
 - `ploidy` — estimated average ploidy
@@ -1340,36 +1384,36 @@ This is the primary output of the pipeline.
 
 ### Bioconductor
 
-| Package | Purpose |
-|---|---|
-| `Rsamtools` | BAM file reading and read counting |
-| `Biostrings` | Reference FASTA loading and GC computation |
-| `GenomicRanges` | Genomic interval arithmetic |
-| `DNAcopy` | CBS segmentation algorithm |
-| `minfi` | Methylation array IDAT reading and preprocessing |
-| `conumee` | Alternative methylation binning strategy |
+| Package         | Purpose                                          |
+| --------------- | ------------------------------------------------ |
+| `Rsamtools`     | BAM file reading and read counting               |
+| `Biostrings`    | Reference FASTA loading and GC computation       |
+| `GenomicRanges` | Genomic interval arithmetic                      |
+| `DNAcopy`       | CBS segmentation algorithm                       |
+| `minfi`         | Methylation array IDAT reading and preprocessing |
+| `conumee`       | Alternative methylation binning strategy         |
 
 ### CRAN
 
-| Package | Purpose |
-|---|---|
-| `copynumber` | PCF and multipcf segmentation |
-| `xgboost` | ML model for solution scoring |
-| `parallel` | Multi-core parallel processing (`mclapply`) |
-| `shiny` + plugins | Interactive ploidy modifier GUI |
-| `spatstat.geom` | Spatial geometry utilities |
-| `dipsaus` | Miscellaneous utilities |
+| Package           | Purpose                                     |
+| ----------------- | ------------------------------------------- |
+| `copynumber`      | PCF and multipcf segmentation               |
+| `xgboost`         | ML model for solution scoring               |
+| `parallel`        | Multi-core parallel processing (`mclapply`) |
+| `shiny` + plugins | Interactive ploidy modifier GUI             |
+| `spatstat.geom`   | Spatial geometry utilities                  |
+| `dipsaus`         | Miscellaneous utilities                     |
 
 ### Bundled Package Data
 
-| Object | Description |
-|---|---|
-| `lSe.hg19.filtered` / `lSe.hg38.filtered` | Precomputed 30 kb bin coordinates for hg19/hg38 |
-| `lGCT.hg19.filtered` / `lGCT.hg38.filtered` | Precomputed GC fractions for those bins |
-| `lSe_unfiltered_5000.mm39` | 5 kb bins for mouse genome mm39 |
-| XGBoost model | Pre-trained model for `predictRefit_all()` |
-| SBDRY matrices | Precomputed CBS boundary matrices for fast segmentation |
+| Object                                      | Description                                             |
+| ------------------------------------------- | ------------------------------------------------------- |
+| `lSe.hg19.filtered` / `lSe.hg38.filtered`   | Precomputed 30 kb bin coordinates for hg19/hg38         |
+| `lGCT.hg19.filtered` / `lGCT.hg38.filtered` | Precomputed GC fractions for those bins                 |
+| `lSe_unfiltered_5000.mm39`                  | 5 kb bins for mouse genome mm39                         |
+| XGBoost model                               | Pre-trained model for `predictRefit_all()`              |
+| SBDRY matrices                              | Precomputed CBS boundary matrices for fast segmentation |
 
 ---
 
-*This document covers all functions in ASCAT.sc v0.1. For usage examples see the [project Wiki](https://github.com/VanLoo-lab/ASCAT.sc/wiki).*
+_This document covers all functions in ASCAT.sc v0.1. For usage examples see the [project Wiki](https://github.com/VanLoo-lab/ASCAT.sc/wiki)._

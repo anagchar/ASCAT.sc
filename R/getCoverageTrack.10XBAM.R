@@ -36,9 +36,12 @@ getCoverageTrack.10XBAM <- function (bamPath,
         qw <- binData$qwidth
         counts <- sapply(barcodesUNIQUE, function(b) sum(bc == b, na.rm=TRUE))
         nucleotides <- sapply(barcodesUNIQUE, function(b) sum(qw[bc == b], na.rm=TRUE))
-        list(counts=counts, nucleotides=nucleotides)
+        # per-barcode median read length
+        f <- factor(bc, levels=barcodesUNIQUE)
+        median_qwidth <- setNames(as.numeric(tapply(qw, f, median)[barcodesUNIQUE]), barcodesUNIQUE)
+        list(counts=counts, nucleotides=nucleotides, median_qwidth=median_qwidth)
     }
-    .formatCounts <- function(counts, nucleotides, chr, start, end, bamPath, bc)
+    .formatCounts <- function(counts, nucleotides, chr, start, end, bamPath, bc, median_qwidth)
     {
         samplename = paste0(basename(bamPath), "_", bc)
         data.frame(space=NA,
@@ -47,7 +50,8 @@ getCoverageTrack.10XBAM <- function (bamPath,
                    width=NA,
                    file=samplename,
                    records=counts,
-                   nucleotides=nucleotides)
+                   nucleotides=nucleotides,
+                   median_qwidth=median_qwidth)
     }
     .formatOutput <- function(cT, chr, starts, ends)
     {
@@ -60,7 +64,8 @@ getCoverageTrack.10XBAM <- function (bamPath,
                                                function(i)
                                                    .formatCounts(out[[i]]$counts[bc],
                                                                  out[[i]]$nucleotides[bc],
-                                                                 chr,starts[i],ends[i], bamPath, bc)))
+                                                                 chr,starts[i],ends[i], bamPath, bc,
+                                                                 out[[i]]$median_qwidth[bc])))
                           df$width <- df$end-df$start
                           df$space <- chr
                           df

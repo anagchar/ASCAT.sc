@@ -20,6 +20,8 @@ for (pkg in required_packages) {
 
 # Load packages explicitly
 library(data.table)
+# NAMESPACE does not import data.table, so tell it this package uses := and .I
+.datatable.aware <- TRUE
 library(ggplot2)
 library(cowplot)
 library(dplyr)
@@ -331,7 +333,8 @@ extract_total_profiles <- function(res) {
 # profile / BAF plots so a call can be visually cross-checked against BAF.
 #' @param cn Per-bin total copy number for one cell (e.g. profiles$profiles[[cell]])
 #' @param bins data.table with genomic coordinates (same bins used to build cn)
-#' @param neutral_cn Copy number considered neutral/diploid (default 2)
+#' @param neutral_cn Copy number considered neutral/diploid (default 2); a
+#'        single value or one per bin (see get_neutral_cn())
 #' @return data.table with chr, type ("gain"/"loss"), start_bin, end_bin (one row per region)
 find_cna_regions <- function(cn, bins, neutral_cn = 2) {
   setDT(bins)
@@ -590,6 +593,83 @@ extract_baf_raw <- function(res, cell_name, bins) {
     baf_lo  = hits$q05,
     baf_hi  = hits$q95
   )
+}
+
+#' Extract per-bin MEAN read length (nucleotides / records) for each cell
+#'
+#' The 10X coverage tracks (getCoverageTrack.10XBAM) store, per bin and cell,
+#' the read count (records) and the summed read length (nucleotides, from
+#' qwidth), so the mean read length per bin comes straight from the result
+#' object. The median cannot: it needs the individual read lengths, i.e. a
+#' pass over the BAM.
+#' @param res ASCAT.sc result object (must contain allTracks.processed)
+#' @param cells Optional character vector of cells to extract (default: all)
+#' @param min_reads Bins with fewer reads than this are set to NA (default 1,
+#'        i.e. only empty bins)
+#' @return list with $readlen (data.table of mean read length in bp, bins x
+#'         cells) and $records (data.table of read counts, bins x cells - needed
+#'         to pool bins into a segment-level mean in plot_readlen_profile())
+extract_readlen_profiles <- function(res, cells = NULL, min_reads = 1) {
+  message("Extracting per-bin mean read length...")
+
+  if (is.null(res$allTracks.processed)) {
+    stop("res$allTracks.processed not found. Read-length plots require the processed tracks.")
+  }
+  if (is.null(cells)) cells <- names(res$allTracks.processed)
+  cells <- cells[cells %in% names(res$allTracks.processed)]
+  if (length(cells) == 0) {
+    stop("None of the requested cells are in res$allTracks.processed.")
+  }
+
+  first_chr <- res$allTracks.processed[[cells[1]]]$lCTS[[1]]
+  if (!"nucleotides" %in% colnames(first_chr)) {
+    stop("No 'nucleotides' column in allTracks.processed: these tracks were not built ",
+         "with getCoverageTrack.10XBAM(), so read length is not stored in the object.")
+  }
+
+  per_cell <- lapply(cells, function(cell) {
+    dt  <- rbindlist(res$allTracks.processed[[cell]]$lCTS)
+    rec <- as.numeric(dt$records)
+    rl  <- as.numeric(dt$nucleotides) / rec
+    rl[rec < max(min_reads, 1)] <- NA_real_
+    list(rl = rl, rec = rec)
+  })
+
+  readlen <- do.call(cbind, lapply(per_cell, `[[`, "rl")) |> data.table()
+  records <- do.call(cbind, lapply(per_cell, `[[`, "rec")) |> data.table()
+  setnames(readlen, cells)
+  setnames(records, cells)
+
+  message(sprintf("  Extracted %d bins x %d cells (median reads per bin: %.0f, median of bin means: %.0f bp)",
+                  nrow(readlen), ncol(readlen),
+                  stats::median(as.matrix(records)),
+                  stats::median(as.matrix(readlen), na.rm = TRUE)))
+  return(list(readlen = readlen, records = records))
+}
+
+#' Per-bin copy number considered neutral for one cell, used for the CNA
+#' highlights. round(ploidy) on autosomes; in male cells half of that on
+#' chrX/chrY, so a single X is not highlighted as a loss. Male detection
+#' mirrors plotProfile(): sex = "male", or "auto" with median chrY CN >= 1.
+#' @param cn Per-bin total copy number for the cell
+#' @param bins data.table with genomic coordinates (same bins used to build cn)
+#' @param ploidy Cell ploidy (NULL -> 2)
+#' @param sex "auto", "male" or "female"
+#' @return Numeric vector, one neutral CN per bin
+get_neutral_cn <- function(cn, bins, ploidy = NULL, sex = c("auto", "male", "female")) {
+  sex <- match.arg(sex)
+  base <- if (is.null(ploidy)) 2 else round(ploidy)
+  neutral <- rep(base, nrow(bins))
+
+  sex_chr <- bins$chr %in% c("chrX", "chrY", "X", "Y", "23", "24")
+  is_male <- sex == "male"
+  if (sex == "auto") {
+    chrY_cn <- cn[bins$chr %in% c("chrY", "Y", "24")]
+    chrY_cn <- chrY_cn[!is.na(chrY_cn)]
+    is_male <- length(chrY_cn) > 0 && stats::median(chrY_cn) >= 1
+  }
+  if (is_male) neutral[sex_chr] <- max(1, round(base / 2))
+  neutral
 }
 
 # -----------------------------------------------------------------------------
@@ -1259,8 +1339,10 @@ plot_allele_heatmap <- function(nMajor, nMinor, bins,
 #' @param bins data.table with genomic coordinates
 #' @param cell_name Name for the title
 #' @param bar_height Height of each allele bar (default 0.15)
+#' @param cna_regions Optional data.table from find_cna_regions() - drawn as background highlights
 #' @return ggplot object
-plot_allele_profile <- function(nMajor, nMinor, bins, cell_name = NULL, ploidy = NULL, segments_ci = NULL, bar_height = 0.05, ci_alpha = 0.2) {
+plot_allele_profile <- function(nMajor, nMinor, bins, cell_name = NULL, ploidy = NULL, segments_ci = NULL, bar_height = 0.05, ci_alpha = 0.2,
+                                cna_regions = NULL) {
   
   # Ensure major >= minor consistently, same as extract_allele_profiles
   nMaj_orig <- nMajor
@@ -1313,7 +1395,15 @@ plot_allele_profile <- function(nMajor, nMinor, bins, cell_name = NULL, ploidy =
   segments[, min_ymax := nMinor]
   
   # Plot - ASCAT style with rectangles, matching plotProfile styling
-  p <- ggplot(segments) +
+  p <- ggplot(segments)
+  if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+    # Shares the fill scale with the allele bars below (gain/loss values are
+    # added there, legend restricted to Major/Minor)
+    p <- p +
+      geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE, show.legend = FALSE)
+  }
+  p <- p +
     # Horizontal gridlines at integer CN values (behind the data)
     geom_hline(yintercept = 0:4, color = "grey80", linewidth = 0.3)
   if (!is.null(segments_ci)) {
@@ -1351,7 +1441,9 @@ plot_allele_profile <- function(nMajor, nMinor, bins, cell_name = NULL, ploidy =
               color = NA) +
     # Color scale with legend
     scale_fill_manual(
-      values = c("Major" = "#E03546", "Minor" = "#1b38ae"),
+      values = c("Major" = "#E03546", "Minor" = "#1b38ae",
+                 gain = "#c0392b", loss = "#2471a3"),
+      breaks = c("Major", "Minor"),
       name = "Allele"
     ) +
     # Chromosome boundaries - dashed lines like plotProfile
@@ -1637,6 +1729,189 @@ plot_overlap_profile <- function(ov_dt, bins, cell_name = NULL, cna_regions = NU
   return(p)
 }
 
+#' Create per-cell read-length profile plot along the genome
+#'
+#' Same x-axis as plotProfile() (one position per bin) so it can be stacked
+#' directly under the copy-number profile. Grey points = mean read length per
+#' bin; black segments = pooled mean read length over each copy-number
+#' segment (sum of bases / sum of reads; mirrors the CN segment line above);
+#' grey line = the same pooled mean over the whole cell. A CNA whose reads are
+#' systematically shorter or longer than the rest of the cell shows up as a
+#' segment off the grey line.
+#'
+#' The segment value is pooled rather than a median of the bin means on
+#' purpose: with ~10 reads per bin the bin means are right-skewed and their
+#' median rises with the number of reads, so a loss (fewer reads per bin)
+#' would look shorter and a gain longer even with identical read lengths.
+#' @param rl Per-bin mean read length for one cell (a column of extract_readlen_profiles()$readlen)
+#' @param bins data.table with genomic coordinates (same bins used to build rl)
+#' @param records Optional per-bin read count for the same cell (a column of
+#'        extract_readlen_profiles()$records), used to weight the pooled means.
+#'        If NULL, every bin gets the same weight.
+#' @param cn Optional per-bin total CN for the same cell, used to define the segments
+#' @param cell_name Optional cell name for the title
+#' @param cna_regions Optional data.table from find_cna_regions() - drawn as
+#'        background highlights so read length can be read against a call
+#' @param log_y Logical. Log10 y-axis (default TRUE): bin means span ~200 bp to
+#'        >10 kb, and on a linear axis a few low-coverage bins flatten the rest.
+#' @param ylim_quantiles Quantiles of the bin means used as y-limits; bins
+#'        outside are squished onto the edge (like CN > 6 in plotProfile)
+#' @return ggplot object
+plot_readlen_profile <- function(rl, bins, records = NULL, cn = NULL, cell_name = NULL,
+                                 cna_regions = NULL, log_y = TRUE,
+                                 ylim_quantiles = c(.005, .995)) {
+  theme_set(theme_cowplot())
+
+  setDT(bins)
+  bins[, bin := seq_along(chr)]
+
+  chr_bounds <- bins[, list(min = min(bin), max = max(bin)), by = chr]
+  chr_bounds <- chr_bounds %>%
+    mutate(mid = round(min + (max - min) / 2, 0))
+
+  if (length(rl) != nrow(bins)) {
+    stop(sprintf("Read-length track has %d bins but bins has %d.", length(rl), nrow(bins)))
+  }
+
+  dt <- data.table(bin = bins$bin, chr = bins$chr, rl = as.numeric(rl),
+                   w  = if (is.null(records)) 1 else as.numeric(records),
+                   cn = if (is.null(cn)) NA_real_ else as.numeric(cn))
+  dt[, seg_id := rleid(chr, cn)]
+  dt <- dt[!is.na(rl)]
+
+  cell_mean <- dt[, sum(rl * w) / sum(w)]
+  ylims <- stats::quantile(dt$rl, ylim_quantiles, names = FALSE)
+
+  # Pooled mean per CN segment. Skip the by= aggregation on 0 rows (same
+  # data.table min()/max() warning quirk as find_cna_regions()).
+  segments <- if (is.null(cn) || nrow(dt) == 0) NULL else
+    dt[, .(start_bin = min(bin), end_bin = max(bin), rl_seg = sum(rl * w) / sum(w)), by = seg_id]
+
+  p <- ggplot(dt)
+  if (!is.null(cna_regions) && nrow(cna_regions) > 0) {
+    p <- p +
+      geom_rect(data = cna_regions, aes(xmin = start_bin - 0.5, xmax = end_bin + 0.5, fill = type),
+                ymin = -Inf, ymax = Inf, alpha = .18, inherit.aes = FALSE) +
+      scale_fill_manual(values = c(gain = "#c0392b", loss = "#2471a3"), guide = "none")
+  }
+  p <- p +
+    geom_hline(yintercept = cell_mean, colour = "grey40", linewidth = .3) +
+    geom_point(aes(x = bin, y = rl), size = 0.7, colour = "grey60")
+  if (!is.null(segments)) {
+    p <- p +
+      geom_segment(data = segments,
+                   aes(x = start_bin - 0.5, xend = end_bin + 0.5, y = rl_seg, yend = rl_seg),
+                   linewidth = .8, colour = "black")
+  }
+  y_scale <- if (log_y) {
+    scale_y_log10(labels = scales::comma, limits = ylims, oob = scales::squish,
+                  breaks = scales::breaks_log(n = 6))
+  } else {
+    scale_y_continuous(labels = scales::comma, limits = ylims, oob = scales::squish)
+  }
+  title_text <- sprintf("Mean read length per bin (cell mean = %s bp)",
+                        scales::comma(round(cell_mean)))
+  p <- p +
+    geom_vline(xintercept = chr_bounds$max + .5, linewidth = .15, colour = "grey70") +
+    scale_x_continuous(expand = c(0, 0), breaks = chr_bounds$mid, labels = chr_bounds$chr) +
+    y_scale +
+    labs(x = NULL, y = "Read length (bp)", title = title_text) +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 16),
+          axis.title.y = element_text(size = 24), axis.text.y = element_text(size = 16))
+
+  if (!is.null(cell_name)) {
+    p <- p + ggtitle(paste0(cell_name, "\n", title_text)) +
+      theme(plot.title = element_text(hjust = 0.5, size = 16))
+  }
+
+  return(p)
+}
+
+#' Read-length heatmap (cells x genome), to stack under the CN heatmap
+#'
+#' Each cell's reads are pooled in fixed windows of \code{window_bins} bins
+#' (never crossing a chromosome) and coloured by the window's mean read length
+#' relative to the cell's own mean (sum of bases / sum of reads in both). The
+#' windows are independent of the CN calls on purpose: pooling per CN segment
+#' would draw the CN segment boundaries into this heatmap too, and small
+#' CNA segments with few reads would light up from noise alone, which looks
+#' like agreement with the CN heatmap even when there is none.
+#'
+#' Same x-axis (cumulative bp) and chromosome lines as plotHeatmap(), and the
+#' same row order when given the same \code{order}.
+#' @param readlen data.table of per-bin mean read length (extract_readlen_profiles()$readlen)
+#' @param records data.table of per-bin read counts (extract_readlen_profiles()$records)
+#' @param bins data.table with genomic coordinates
+#' @param order Optional cell order (bottom to top, as in plotHeatmap()); default: column order
+#' @param window_bins Number of bins pooled per window (default 5; 1 = per bin)
+#' @param ratio_limits Colour scale limits on the ratio; values outside are squished
+#' @return ggplot object
+plot_readlen_heatmap <- function(readlen, records, bins, order = NULL, window_bins = 5,
+                                 ratio_limits = c(2 / 3, 1.5)) {
+  theme_set(theme_cowplot())
+
+  # Same cumulative coordinates and chromosome bounds as plotHeatmap()
+  bins <- copy(bins)
+  setDT(bins)
+  bins[, bin := seq_along(chr)]
+  bins[, end_cum := cumsum((end - start) + 1)]
+  bins[, start_cum := c(1, end_cum[seq_along(end_cum) - 1] + 1)]
+  chr_bounds <- bins[, list(min = min(bin), max = max(bin), chrlen_bp = sum(end - start)), by = chr]
+  chr_bounds <- chr_bounds %>%
+    mutate(mid = round(min + (max - min) / 2, 0),
+           end_bp = cumsum(as.numeric(chrlen_bp)),
+           start_bp = end_bp - chrlen_bp,
+           mid_bp = round((chrlen_bp / 2) + start_bp, 0))
+
+  # Windows of window_bins consecutive bins, restarting at every chromosome
+  bins[, win := (seq_len(.N) - 1) %/% window_bins, by = chr]
+  bins[, win_id := rleid(chr, win)]
+  windows <- bins[, .(start_cum = min(start_cum), end_cum = max(end_cum)), by = win_id]
+
+  cells <- if (is.null(order)) colnames(readlen) else order[order %in% colnames(readlen)]
+  rl  <- as.matrix(readlen[, ..cells])
+  rec <- as.matrix(records[, ..cells])
+
+  # Bases and reads per window, counting only bins that have a read length
+  ok  <- !is.na(rl)
+  nuc <- ifelse(ok, rl * rec, 0)
+  rec[!ok] <- 0
+  win_nuc <- rowsum(nuc, bins$win_id)
+  win_rec <- rowsum(rec, bins$win_id)
+  cell_mean <- colSums(nuc) / colSums(rec)
+  ratio <- sweep(win_nuc / win_rec, 2, cell_mean, "/")
+  ratio[win_rec == 0] <- NA_real_
+
+  dt <- data.table(win_id = rep(windows$win_id, length(cells)),
+                   cell   = factor(rep(cells, each = nrow(windows)), levels = cells),
+                   l2r    = log2(as.vector(ratio)))
+  dt <- merge(dt, windows, by = "win_id")
+  dt[, mid_cum := (start_cum + end_cum) / 2]
+  dt[, bin_width := end_cum - start_cum + 1]
+
+  ratio_breaks <- c(2 / 3, 0.8, 1, 1.25, 1.5)
+  ratio_breaks <- ratio_breaks[ratio_breaks >= ratio_limits[1] & ratio_breaks <= ratio_limits[2]]
+
+  # Purple/green rather than blue/red: blue and red already mean loss and gain
+  # in the CN heatmap this sits under.
+  ggplot(dt) +
+    geom_tile(aes(x = mid_cum, y = cell, fill = l2r, width = bin_width), height = 1) +
+    scale_fill_gradient2(low = "#762a83", mid = "#f0efec", high = "#1b7837", midpoint = 0,
+                         limits = log2(ratio_limits), oob = scales::squish,
+                         breaks = log2(ratio_breaks),
+                         labels = format(round(ratio_breaks, 2)),
+                         na.value = "grey60",
+                         name = "Read length /\ncell mean") +
+    scale_x_continuous(expand = c(0, 0), labels = chr_bounds$chr, breaks = chr_bounds$mid_bp) +
+    geom_vline(data = chr_bounds, aes(xintercept = end_bp), linetype = 1, linewidth = .8) +
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+}
+
 # -----------------------------------------------------------------------------
 # STEP 6b: Auto-Detection Helper
 # -----------------------------------------------------------------------------
@@ -1777,6 +2052,13 @@ save_plot <- function(plot,
 #'        TOTAL-CN profile plots: in male samples chrX/chrY are coloured with a
 #'        baseline of CN=1 (so CN=1 reads as neutral grey instead of loss). Auto
 #'        detection flags a profile as male when median chrY CN is >= 1.
+#' @param show_readlen Logical. If TRUE, each profile plot gets a second panel
+#'        underneath with the mean read length per bin (plot_readlen_profile()),
+#'        and the CNAs of that cell (CN != round(ploidy), half that on chrX/chrY
+#'        in male cells - see get_neutral_cn()) are highlighted in both panels.
+#'        Saved to plots/profiles_readlen/ instead of plots/profiles/.
+#' @param readlen_min_reads Bins with fewer reads than this get no read-length
+#'        point (default 1, i.e. only empty bins are dropped).
 #' @param save Logical. If TRUE, save to files. If FALSE, just return plot.
 #' 
 #' @return ggplot object (invisibly if save=TRUE)
@@ -1802,6 +2084,10 @@ save_plot <- function(plot,
 #' )
 #' ascatsc_plot(res, plot_type = "heatmap", cell_types = ct)
 #'
+#' # Profiles with the mean read length per bin underneath, CNAs highlighted
+#' ascatsc_plot(res, plot_type = "profile", cell_id = "AACCTGCTCTCAGCTA",
+#'              show_readlen = TRUE)
+#'
 ascatsc_plot <- function(res,
                          allele_specific = "auto",
                          plot_type = c("all", "heatmap", "profile"),
@@ -1820,8 +2106,10 @@ ascatsc_plot <- function(res,
                          cell_types = NULL,
                          title = NULL,
                          sex = c("auto", "male", "female"),
+                         show_readlen = FALSE,
+                         readlen_min_reads = 1,
                          save = TRUE) {
-  
+
   sex <- match.arg(sex)
   
   # Match arguments
@@ -1848,8 +2136,8 @@ ascatsc_plot <- function(res,
   # STEP B: Create output directories
   # -------------------------------------------------------------------------
   plots_dir <- file.path(output_dir, "plots")
-  profiles_dir <- file.path(plots_dir, "profiles")
-  
+  profiles_dir <- file.path(plots_dir, if (show_readlen) "profiles_readlen" else "profiles")
+
   if (save) {
     if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
     if (!dir.exists(profiles_dir)) dir.create(profiles_dir, recursive = TRUE)
@@ -1916,13 +2204,19 @@ ascatsc_plot <- function(res,
       }
       
       message(sprintf("Creating profile plots for %d cells...", length(cells_to_plot)))
-      
+
+      readlen <- NULL
+      if (show_readlen && any(cells_to_plot %in% cell_names)) {
+        readlen <- extract_readlen_profiles(res, cells = intersect(cells_to_plot, cell_names),
+                                            min_reads = readlen_min_reads)
+      }
+
       for (cell in cells_to_plot) {
         if (!cell %in% cell_names) {
           warning(sprintf("Cell '%s' not found, skipping", cell))
           next
         }
-        
+
         ci_data <- NULL
         if (show_ci) {
           ci_data <- tryCatch(
@@ -1936,19 +2230,38 @@ ascatsc_plot <- function(res,
           cell_ploidy <- res$allSolutions[[cell]]$ploidy
         }
         
+        cna_regions <- NULL
+        if (show_readlen) {
+          cna_regions <- find_cna_regions(profiles$total[[cell]], bins,
+                                          neutral_cn = get_neutral_cn(profiles$total[[cell]], bins,
+                                                                      cell_ploidy, sex))
+        }
+
         profile_plot <- plot_allele_profile(
           nMajor = profiles$nMajor[[cell]],
           nMinor = profiles$nMinor[[cell]],
           bins = bins,
           cell_name = cell,
           ploidy = cell_ploidy,
-          segments_ci = ci_data
+          segments_ci = ci_data,
+          cna_regions = cna_regions
         )
-        
+
+        if (show_readlen) {
+          if (cell %in% colnames(readlen$readlen)) {
+            profile_plot <- profile_plot /
+              plot_readlen_profile(readlen$readlen[[cell]], bins, records = readlen$records[[cell]],
+                                   cn = profiles$total[[cell]], cna_regions = cna_regions)
+          } else {
+            warning(sprintf("Cell '%s' has no processed track, no read-length panel", cell))
+          }
+        }
+
         if (save) {
           ext <- output_format[1]
           profile_file <- file.path(profiles_dir, paste0(cell, ".", ext))
-          ggsave(profile_file, profile_plot, width = width, height = height / 2, dpi = dpi, bg = "white")
+          ggsave(profile_file, profile_plot, width = width,
+                 height = if (show_readlen) height else height / 2, dpi = dpi, bg = "white")
         }
       }
       message(sprintf("  Saved %d profile plots to: %s", length(cells_to_plot), profiles_dir))
@@ -2010,7 +2323,13 @@ ascatsc_plot <- function(res,
       }
       
       message(sprintf("Creating profile plots for %d cells...", length(cells_to_plot)))
-      
+
+      readlen <- NULL
+      if (show_readlen && any(cells_to_plot %in% cell_names)) {
+        readlen <- extract_readlen_profiles(res, cells = intersect(cells_to_plot, cell_names),
+                                            min_reads = readlen_min_reads)
+      }
+
       ext <- output_format[1]
       for (cell in cells_to_plot) {
         if (!cell %in% cell_names) {
@@ -2029,6 +2348,13 @@ ascatsc_plot <- function(res,
           cell_ploidy <- res$allSolutions[[cell]]$ploidy
         }
         
+        cna_regions <- NULL
+        if (show_readlen) {
+          cna_regions <- find_cna_regions(profiles$profiles[[cell]], bins,
+                                          neutral_cn = get_neutral_cn(profiles$profiles[[cell]], bins,
+                                                                      cell_ploidy, sex))
+        }
+
         profile_plot = plotProfile(
           segments = profiles$profiles[[cell]],
           raw = raw_vals,
@@ -2037,13 +2363,25 @@ ascatsc_plot <- function(res,
           linesize = linesize,
           cell_name = cell,
           ploidy = cell_ploidy,
-          sex = sex
+          sex = sex,
+          cna_regions = cna_regions
         )
-        
+
+        if (show_readlen) {
+          if (cell %in% colnames(readlen$readlen)) {
+            profile_plot <- profile_plot /
+              plot_readlen_profile(readlen$readlen[[cell]], bins, records = readlen$records[[cell]],
+                                   cn = profiles$profiles[[cell]], cna_regions = cna_regions)
+          } else {
+            warning(sprintf("Cell '%s' has no processed track, no read-length panel", cell))
+          }
+        }
+
         if (save) {
           ext <- output_format[1]
           profile_file <- file.path(profiles_dir, paste0(cell, ".", ext))
-          ggsave(profile_file, profile_plot, width = width, height = height / 2, dpi = dpi, bg = "white")
+          ggsave(profile_file, profile_plot, width = width,
+                 height = if (show_readlen) height else height / 2, dpi = dpi, bg = "white")
         }
       }
       message(sprintf("  Saved %d profile plots to: %s", length(cells_to_plot), profiles_dir))
@@ -2239,6 +2577,178 @@ ascatsc_plot_readcounts <- function(res,
 
   if (exists("p_summary")) return(invisible(p_summary))
   if (exists("p_cell")) return(invisible(p_cell))
+}
+
+# =============================================================================
+# STEP 10: Read Length per Bin vs Copy Number
+# =============================================================================
+
+#' Per-cell copy-number profile with the mean read length per bin underneath
+#'
+#' For every cell: the total-CN profile (plotProfile()) stacked on the
+#' read-length profile (plot_readlen_profile()), CNAs highlighted in both
+#' panels, saved to output_dir/profiles/<cell>.<ext>. Also writes
+#' output_dir/readlen_segments.tsv with one row per copy-number segment, so
+#' read length can be compared between gains, losses and neutral regions
+#' across all cells without opening every plot.
+#'
+#' Read length comes from the coverage tracks in the result object
+#' (nucleotides / records per bin), no BAM needed. Segment and cell values
+#' are pooled (sum of bases / sum of reads), see plot_readlen_profile().
+#'
+#' @param res ASCAT.sc result object (must contain allTracks.processed and allProfiles).
+#' @param cell_id Character vector of cells to plot. NULL (default) = all cells.
+#' @param output_dir Directory for the profiles/ folder and the segment table.
+#' @param output_format "png" (default) or "pdf".
+#' @param width,height Figure size in inches (both panels together).
+#' @param dpi Resolution for PNG output.
+#' @param min_reads Bins with fewer READS than this get no read-length point and
+#'        are left out of the pooled means (default 1 = only empty bins). This
+#'        is a read count, not a read length.
+#' @param sex "auto" (default), "male" or "female" - passed to plotProfile()
+#'        and get_neutral_cn().
+#' @param linesize Line width of the CN segments.
+#' @param mc.cores Number of cores used to draw and save the plots.
+#' @param save_plots Logical. If FALSE, no per-cell profile plots are drawn.
+#' @param heatmap Logical. If TRUE (default), also save output_dir/heatmap_readlen.<ext>:
+#'        the CN heatmap with the read-length heatmap (plot_readlen_heatmap())
+#'        underneath, cells in the same order (clustered on CN, manhattan +
+#'        ward.D2 as in plotHeatmap()). Size: width x (2 * height).
+#' @param window_bins Bins pooled per window in the read-length heatmap (default 5).
+#' @return data.table of segments (invisibly), one row per CN segment per cell:
+#'         cell, ploidy, chr, start, end, start_bin, end_bin, n_bins, cn,
+#'         neutral_cn, state ("gain"/"loss"/"neutral"), reads, readlen_bp
+#'         (pooled over the segment), cell_readlen_bp (pooled over the cell),
+#'         readlen_ratio (readlen_bp / cell_readlen_bp).
+#'
+#' @examples
+#' res <- readRDS("ASCAT.sc_results.rds")
+#' ascatsc_plot_readlen(res, output_dir = "readlen_analysis", mc.cores = 8)
+#'
+#' # A few cells only
+#' ascatsc_plot_readlen(res, cell_id = c("CACCTTAAGAGCCGGT", "CTGGCTTAGCTATCGC"),
+#'                      output_dir = "readlen_analysis")
+#'
+#' # Only the heatmap (and segment table), no per-cell plots
+#' ascatsc_plot_readlen(res, output_dir = "readlen_analysis", save_plots = FALSE)
+ascatsc_plot_readlen <- function(res,
+                                 cell_id = NULL,
+                                 output_dir = ".",
+                                 output_format = "png",
+                                 width = 20,
+                                 height = 10,
+                                 dpi = 300,
+                                 min_reads = 1,
+                                 sex = c("auto", "male", "female"),
+                                 linesize = 0.5,
+                                 mc.cores = 1,
+                                 save_plots = TRUE,
+                                 heatmap = TRUE,
+                                 window_bins = 5) {
+  sex <- match.arg(sex)
+  message("=== ASCAT.sc Read Length per Bin ===")
+
+  bins <- extract_bins(res)
+  profiles <- extract_total_profiles(res)
+  cell_names <- colnames(profiles$profiles)
+
+  cells <- if (is.null(cell_id)) cell_names else cell_id[cell_id %in% cell_names]
+  if (length(cells) == 0) {
+    stop("No cell_id matched. Available names look like: ",
+         paste(head(cell_names, 3), collapse = ", "))
+  }
+  readlen <- extract_readlen_profiles(res, cells = cells, min_reads = min_reads)
+  cells <- colnames(readlen$readlen)
+
+  profiles_dir <- file.path(output_dir, "profiles")
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  if (save_plots && !dir.exists(profiles_dir)) dir.create(profiles_dir, recursive = TRUE)
+
+  one_cell <- function(cell) {
+    cn  <- as.numeric(profiles$profiles[[cell]])
+    rl  <- readlen$readlen[[cell]]
+    rec <- readlen$records[[cell]]
+    ploidy <- res$allSolutions[[cell]]$ploidy
+    neutral <- get_neutral_cn(cn, bins, ploidy, sex)
+    cna_regions <- find_cna_regions(cn, bins, neutral_cn = neutral)
+
+    if (save_plots) {
+      p <- suppressMessages(plotProfile(segments = cn, raw = profiles$raw[[cell]], bins = bins,
+                                        sc = TRUE, linesize = linesize, cell_name = cell,
+                                        ploidy = ploidy, sex = sex, cna_regions = cna_regions)) /
+        plot_readlen_profile(rl, bins, records = rec, cn = cn, cna_regions = cna_regions)
+      ggsave(file.path(profiles_dir, paste0(cell, ".", output_format[1])), p,
+             width = width, height = height, dpi = dpi, bg = "white")
+    }
+
+    # Pooled read length per CN segment (bins with NA read length left out)
+    dt <- data.table(chr = bins$chr, start = bins$start, end = bins$end, bin = bins$bin,
+                     cn = cn, neutral_cn = neutral, rl = rl, rec = rec)
+    dt[, ok := !is.na(rl)]
+    cell_readlen <- dt[ok == TRUE, sum(rl * rec) / sum(rec)]
+    dt[, seg_id := rleid(chr, cn)]
+    seg <- dt[, .(start = min(start), end = max(end), start_bin = min(bin), end_bin = max(bin),
+                  n_bins = .N, cn = cn[1], neutral_cn = neutral_cn[1], reads = sum(rec),
+                  readlen_bp = sum(rl[ok] * rec[ok]) / sum(rec[ok])),
+              by = .(seg_id, chr)]
+    seg[, seg_id := NULL]
+    seg[, state := fifelse(cn > neutral_cn, "gain", fifelse(cn < neutral_cn, "loss", "neutral"))]
+    seg[, `:=`(cell = cell,
+               ploidy = if (is.null(ploidy)) NA_real_ else ploidy,
+               cell_readlen_bp = cell_readlen,
+               readlen_ratio = readlen_bp / cell_readlen)]
+    setcolorder(seg, c("cell", "ploidy", "chr", "start", "end", "start_bin", "end_bin", "n_bins",
+                       "cn", "neutral_cn", "state", "reads", "readlen_bp", "cell_readlen_bp",
+                       "readlen_ratio"))
+    seg
+  }
+
+  message(sprintf("  Processing %d cells on %d core(s)...", length(cells), mc.cores))
+  results <- parallel::mclapply(cells, function(cell) {
+    tryCatch(one_cell(cell), error = function(e) conditionMessage(e))
+  }, mc.cores = mc.cores)
+
+  failed <- vapply(results, is.character, logical(1))
+  if (any(failed)) {
+    warning(sprintf("%d cells failed (e.g. %s: %s)",
+                    sum(failed), cells[failed][1], results[failed][[1]]))
+  }
+  segments <- rbindlist(results[!failed])
+
+  seg_file <- file.path(output_dir, "readlen_segments.tsv")
+  fwrite(segments, seg_file, sep = "\t")
+  if (save_plots) message(sprintf("  Saved %d plots to: %s", sum(!failed), profiles_dir))
+  message(sprintf("  Saved: %s", seg_file))
+
+  # Quick look: read length of each CN state relative to its cell
+  for (st in c("loss", "neutral", "gain")) {
+    s <- segments[state == st]
+    if (nrow(s) > 0) {
+      message(sprintf("  %-7s %6d segments in %4d cells, median readlen_ratio = %.3f",
+                      st, nrow(s), uniqueN(s$cell), stats::median(s$readlen_ratio, na.rm = TRUE)))
+    }
+  }
+
+  if (heatmap) {
+    message(sprintf("  Building CN + read-length heatmap for %d cells...", length(cells)))
+    cn_mat <- as.matrix(profiles$profiles[, ..cells])
+    cn_mat[is.na(cn_mat)] <- -1
+    hc <- hclust(dist(t(cn_mat), method = "manhattan"), method = "ward.D2")
+    cell_order <- hc$labels[hc$order]
+
+    cn_hm <- plotHeatmap(profiles = profiles$profiles[, ..cells], bins = bins, order = cell_order) +
+      ggtitle("Copy number")
+    rl_hm <- plot_readlen_heatmap(readlen$readlen, readlen$records, bins,
+                                  order = cell_order, window_bins = window_bins) +
+      ggtitle(sprintf("Mean read length per %d-bin window, relative to the cell's mean", window_bins))
+
+    hm_file <- file.path(output_dir, paste0("heatmap_readlen.", output_format[1]))
+    ggsave(hm_file, cn_hm / rl_hm, width = width, height = 2 * height, dpi = dpi, bg = "white")
+    message(sprintf("  Saved: %s", hm_file))
+  }
+  message("=== Done ===")
+
+  return(invisible(segments))
 }
 
 # =============================================================================
