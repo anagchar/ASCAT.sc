@@ -15,7 +15,9 @@ getTrackForAll <- function(bamfile,
                            doSmooth=TRUE,
                            SBDRY=NULL,
                            svinput=NULL,
-                           doSeg=TRUE)
+                           doSeg=TRUE,
+                           segmentation="cbs",
+                           segmentation_penalty=NULL)
 {
     if(is.null(lSe))
     {
@@ -52,6 +54,8 @@ getTrackForAll <- function(bamfile,
     ## ##################################################
     print("   ## segment Tracks")
     require(DNAcopy)
+    ## PCF/QuickSeg penalties in units of the noise of the whole cell, the same for all chromosomes
+    sigma <- if(segmentation%in%c("pcf","quickseg")) getTrackNoise(lapply(lCTS, function(x) x$smoothed)) else NULL
     if(is.null(svinput))
     {
         lSegs <- lapply(1:length(lCTS),function(x)
@@ -62,7 +66,10 @@ getTrackForAll <- function(bamfile,
                                     lSe[[x]]$starts,
                                     lSe[[x]]$ends,
                                     SBDRY=SBDRY,
-                                    ALPHA=segmentation_alpha)
+                                    ALPHA=segmentation_alpha,
+                                    segmentation=segmentation,
+                                    penalty=segmentation_penalty,
+                                    sigma=sigma)
         })
     }
     if(!is.null(svinput))
@@ -75,7 +82,10 @@ getTrackForAll <- function(bamfile,
                                         ends,
                                         SBDRY,
                                         svinput,
-                                        ALPHA)
+                                        ALPHA,
+                                        segmentation,
+                                        penalty,
+                                        sigma)
         {
             widths <- ends-starts
             grcn <- GRanges(allchr[chr],IRanges(starts+round(widths/4),ends-round(widths/4)))
@@ -95,7 +105,10 @@ getTrackForAll <- function(bamfile,
                              starts[ii],
                              ends[ii],
                              SBDRY=SBDRY,
-                             ALPHA=ALPHA)
+                             ALPHA=ALPHA,
+                             segmentation=segmentation,
+                             penalty=penalty,
+                             sigma=sigma)
             })
             out <- list(data = do.call("rbind",lapply(ll,function(x) x$data)),
                         output = do.call("rbind",lapply(ll,function(x) x$output)))
@@ -114,7 +127,10 @@ getTrackForAll <- function(bamfile,
                                                   ends=lSe[[x]]$ends,
                                                   SBDRY=SBDRY,
                                                   svinput=svinput.,
-                                                  ALPHA=segmentation_alpha)
+                                                  ALPHA=segmentation_alpha,
+                                                  segmentation=segmentation,
+                                                  penalty=segmentation_penalty,
+                                                  sigma=sigma)
             }
             else
                 segments <- segmentTrack(lCTS[[x]]$smoothed,
@@ -123,7 +139,10 @@ getTrackForAll <- function(bamfile,
                                          lSe[[x]]$starts,
                                          lSe[[x]]$ends,
                                          SBDRY=SBDRY,
-                                         ALPHA=segmentation_alpha)
+                                         ALPHA=segmentation_alpha,
+                                         segmentation=segmentation,
+                                         penalty=segmentation_penalty,
+                                         sigma=sigma)
         })
     }
     names(lSegs) <- paste0(1:length(lCT))

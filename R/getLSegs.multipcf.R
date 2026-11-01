@@ -5,6 +5,7 @@ getLSegs.multipcf <- function(allTracks,
                               lNormals=NULL,
                               allchr,
                               segmentation_alpha=0.01,
+                              segmentation_penalty=NULL,
                               normalize=F,
                               svinput=NULL,
                               MC.CORES=1)
@@ -84,7 +85,7 @@ getLSegs.multipcf <- function(allTracks,
     ## #############################################################
     nchr <- length(lCTS[[1]])
     allT <- list(lCTS=lCTSs)
-    penalties <- 1/segmentation_alpha ## rough translation from CBS pval to pcf penalty
+    penalties <- if(is.null(segmentation_penalty)) 1/segmentation_alpha else segmentation_penalty ## rough translation from CBS pval to pcf penalty
     ## #############################################################
     print("Segmenting all chromosomes across tracks")
     allsegs <- runMultiPCF(allT,

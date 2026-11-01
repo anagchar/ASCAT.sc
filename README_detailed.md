@@ -52,7 +52,7 @@ GC Correction & Smoothing  ←  smoothCoverageTrack / treatTrack / treatlSe
 Normal Reference Subtraction  ←  combineDiploid / smoothNormals
         │
         ▼
-Segmentation (CBS / PCF / multipcf)  ←  segmentTrack / getLSegs.multipcf
+Segmentation (CBS / PCF / QuickSeg / multipcf)  ←  segmentTrack / getLSegs.multipcf
         │
         ▼
 Normalisation  ←  normaliseByPloidy
@@ -93,6 +93,8 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 | `maxtumourpsi` | numeric | Maximum allowed tumour ploidy |
 | `binsize` | integer | Bin size in bp (e.g. `30000`, `500000`) |
 | `segmentation_alpha` | numeric | CBS significance threshold (smaller = fewer breakpoints) |
+| `segmentation` | character | Per-cell segmentation: `"cbs"` (default), `"pcf"` or `"quickseg"` |
+| `segmentation_penalty` | numeric | Breakpoint penalty for `"pcf"` (gamma, in units of the cell's noise variance, default 20) and `"quickseg"` (in units of the cell's noise sd, default 7); larger = fewer breakpoints. With `multipcf=TRUE`: the multipcf gamma (default `1/segmentation_alpha`) |
 | `barcodes_10x` | character vector | Cell barcodes for 10X BAM mode |
 | `normal_bams` | character vector | Normal BAM paths for reference construction |
 | `outdir` | character | Output directory |
@@ -114,7 +116,7 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 
 5. **Excludes bad bins.** Optionally calls `sc_excludeBadBins()` to remove bins with extreme variance across cells.
 
-6. **Segments the tracks.** Either jointly with `getLSegs.multipcf()` (when `multipcf=TRUE`) or individually via `segmentTrack()` / `segmentTrack_pcf()`. Segmented tracks per cell are stored in `res$allTracks.processed`.
+6. **Segments the tracks.** Either jointly with `getLSegs.multipcf()` (when `multipcf=TRUE`) or per cell via `segmentTrack()` with the method in `segmentation` (CBS, PCF or QuickSeg). Segmented tracks per cell are stored in `res$allTracks.processed`, the settings in `res$segmentation` / `res$segmentation_penalty`. Re-running on a `res` that was segmented with other settings segments again (results from before this option count as CBS).
 
 7. **Grid searches purity and ploidy.** Calls `searchGrid()` per cell over the supplied `purs × ploidies` grid. Stores best solution per cell in `res$allSols`.
 
@@ -456,17 +458,17 @@ Merges multiple normal/diploid cell coverage tracks into a single reference by s
 
 ### `segmentTrack()` — `segmentTrack.R`
 
-Segments a single-chromosome logR track using Circular Binary Segmentation (CBS).
+Segments a single-chromosome logR track with the method in `segmentation`: Circular Binary Segmentation (`"cbs"`, default), PCF (`"pcf"`, via `segmentTrack_pcf()`) or QuickSeg (`"quickseg"`, via `segmentTrack_quickseg()`).
 
-**Arguments:** `covtrack` (logR vector), `chr`, `starts` (bin positions), `sd` (noise estimate), `min.width` (min segment length), `ALPHA` (CBS significance), `SBDRY` (pre-computed segment boundaries)
+**Arguments:** `covtrack` (logR vector), `chr`, `starts` (bin positions), `sd` (noise estimate), `min.width` (min segment length; default 5 for CBS and PCF, 3 for QuickSeg unless given), `ALPHA` (CBS significance), `SBDRY` (pre-computed segment boundaries), `segmentation`, `penalty` (PCF gamma, default 20, or QuickSeg penalty, default 7), `sigma` (noise sd of the cell that scales the PCF/QuickSeg penalty; estimated from `covtrack` when `NULL`)
 
-**What it does:**
+**What it does (CBS):**
 1. Creates a `CNA` object (from the `DNAcopy` package).
 2. Applies `smooth.CNA()` to reduce outlier influence.
 3. Calls `DNAcopy::segment()` with the specified `alpha` threshold and precomputed `SBDRY` boundaries for speed.
 4. Returns the CBS segmentation result with segment means and boundaries.
 
-**Returns:** `CNA` segment object with columns `loc.start`, `loc.end`, `num.mark`, `seg.mean`.
+**Returns:** `CNA` segment object with columns `loc.start`, `loc.end`, `num.mark`, `seg.mean` (the same columns for all methods).
 
 ---
 
@@ -474,9 +476,35 @@ Segments a single-chromosome logR track using Circular Binary Segmentation (CBS)
 
 Segments a logR track using Piecewise Constant Fitting (PCF) from the `copynumber` package.
 
-**Arguments:** `covtrack`, `chr`, `starts`, `sd`, `transform`, `min.width`, `ALPHA`
+**Arguments:** `covtrack`, `chr`, `starts`, `sd`, `transform`, `min.width`, `ALPHA`, `gamma` (default `1/ALPHA`), `sigma` (when given, `gamma*sigma^2` is used without pcf's own per-call noise scaling, which is unstable on short chromosomes)
 
 **Returns:** Formatted list with segment output compatible with the rest of the pipeline.
+
+---
+
+### `segmentTrack_quickseg()` — `segmentTrack_quickseg.R`
+
+Segments a logR track with QuickSeg (Schlotmann et al., bioRxiv 2026, doi:10.64898/2026.08.31.747916): the exact minimum of `sum(|logR - segment value|) + penalty*sigma*(number of breakpoints)`, found by dynamic programming over the candidate segment values (segment medians, so observed values). The absolute-error cost makes it robust to outlier bins.
+
+**Arguments:** `covtrack`, `chr`, `starts`, `penalty` (default 7, in units of `sigma`), `sigma` (noise sd; `run_sc_sequencing()` / `fitFromLogR()` pass one value per cell from `getTrackNoise()`; `sigma=1` gives the raw penalty of the paper), `min.width` (default 3; `1` gives the exact QuickSeg optimum)
+
+**What it does:**
+1. Skips non-finite bins (as CBS does).
+2. Calls `quickseg::segment()` (C++, [Rquickseg](https://github.com/Balthasar-eu/Rquickseg)) when the package is installed, otherwise the built-in R version `.quickseg()` (same recursion and tie-breaking, O(n) memory; fast enough for single-cell bin sizes, install the package for 30 kb bins). Install with `remotes::install_github("Balthasar-eu/Rquickseg")`.
+3. Merges segments shorter than `min.width` bins into the neighbour with the closest median (`.mergeShort()`). Without it, single outlier bins become segments, in particular the last window of each chromosome, which `getstartends()` makes up to twice as wide as the others (it takes the remaining 30 kb bins). 3 removes those and still keeps the 4-bin focal events that CBS calls on simulated cells.
+4. Returns the segments in the format of `segmentTrack()`, with `seg.mean` the mean of the segment's bins.
+
+`getTrackNoise()` estimates the noise sd as the MAD of the differences between neighbouring bins / sqrt(2), leaving out the zero differences of runs of empty bins.
+
+**Choosing the penalty:** `diagnostics/sim_segmentation_methods.R` compares the methods on simulated tracks (`sim_segmentation_methods_output.txt`). QuickSeg at 7 has about the false-breakpoint rate of CBS at `alpha=0.01`; it is less sensitive than CBS to short CNAs (<= 10 bins) in Gaussian noise and as or more sensitive, with fewer misplaced breakpoints, for longer CNAs when there are outlier bins.
+
+**Comparing the methods on your data:** `diagnostics/compare_segmentations.R` re-segments the cells of a saved `run_sc_sequencing()` result with each method (and several penalties if asked) through `fitFromLogR()`, without reading BAMs again, and writes per-cell and pairwise tables (breakpoints, copy number changes, purity/ploidy, segmentation time, agreement between methods) and a pdf with the cells where the methods disagree most:
+
+```bash
+Rscript diagnostics/compare_segmentations.R res.rds outdir quickseg=5,7,10 src=path/to/ASCAT.sc/R
+```
+
+`src=` sources the segmentation code from a checkout when the installed ASCAT.sc does not have it yet; cores come from `SLURM_CPUS_PER_TASK`. PCF also breaks at every centromere (`copynumber`), so compare its copy number changes rather than its raw breakpoints.
 
 ---
 
@@ -492,7 +520,7 @@ Wrapper that calls either `segmentTrack()` or `segmentTrack_pcf()` depending on 
 
 Joint multi-sample segmentation: segments all cells simultaneously using shared breakpoints.
 
-**Arguments:** `allTracks` (list of raw coverage tracks per cell), `lCTS`, `lSe`, `lGCT`, `lNormals`, `segmentation_alpha`, `normalize`, `svinput`
+**Arguments:** `allTracks` (list of raw coverage tracks per cell), `lCTS`, `lSe`, `lGCT`, `lNormals`, `segmentation_alpha`, `segmentation_penalty` (multipcf gamma, default `1/segmentation_alpha`), `normalize`, `svinput`
 
 **What it does:**
 1. For each chromosome, stacks the logR tracks of all cells into a matrix.

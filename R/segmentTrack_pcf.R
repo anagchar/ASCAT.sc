@@ -8,8 +8,14 @@ segmentTrack_pcf <- function (covtrack,
                               min.width = 5,
                               ALPHA=0.01,
                               SBDRY=NULL,
-                              smooth=TRUE)
+                              smooth=TRUE,
+                              gamma=NULL,
+                              sigma=NULL)
 {
+    if(is.null(gamma)) gamma <- 1/ALPHA ## rough translation from CBS pval to pcf penalty
+    ## pcf scales gamma by the noise variance of the data it gets (here one chromosome); a given sigma (e.g. of
+    ## the whole cell, see getTrackNoise) is used instead, which is more stable on short chromosomes
+    if(!is.null(sigma)) gamma <- gamma*sigma^2
     suppressPackageStartupMessages(require(copynumber))
     covtrack <- covtrack * rnorm(length(covtrack),
                                  mean = 1,
@@ -19,7 +25,8 @@ segmentTrack_pcf <- function (covtrack,
     x <- pcf(data.frame(chr=rep(chr,length(starts)),
                         positions=starts,
                         sample1=covtrack),
-             gamma=1/ALPHA,
+             gamma=gamma,
+             normalize=is.null(sigma),
              verbose=F,
              kmin=min.width)
     cna <- list(data=NULL,

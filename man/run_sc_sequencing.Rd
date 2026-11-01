@@ -11,7 +11,7 @@ It bins the genome into small bins and keeps the ones with
 high consistency of depth of coverage in diploid samples. It counts
 (high mapping quality and properly mapped) reads/pairs of reads within
 those bins then applies the ASCAT methodology for smoothing (GC
-correction with loess), segmenting (CBS or multipcf for multi-region sampling) and fitting of purity/ploidy and integer
+correction with loess), segmenting (CBS, PCF or QuickSeg per cell, or multipcf for multi-region sampling) and fitting of purity/ploidy and integer
 copy-number.
 It will also automatically refit the profiles to match the feature space
 of high-quality consensus PCAWG calls.
@@ -40,7 +40,9 @@ run_sc_sequencing(tumour_bams,
                               probs_filters=.1,
                               sc_filters=FALSE,
                               projectname="project",
-                              multipcf=FALSE)
+                              multipcf=FALSE,
+                              segmentation=c("cbs","pcf","quickseg"),
+                              segmentation_penalty=NULL)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -84,7 +86,8 @@ run_sc_sequencing(tumour_bams,
   }
   \item{segmentation_alpha}{
     segmentation parameter for the circular binary
-    segmentation. penalty=1/segmentation_alpha when using multipcf=T
+    segmentation. penalty=1/segmentation_alpha when using multipcf=T and
+    no segmentation_penalty is given
   }
   \item{predict_refit}{
     boolean. use xgboost predictor to predict refitted ploidy and refit the
@@ -132,6 +135,26 @@ run_sc_sequencing(tumour_bams,
     boolean. use multi track segmentation when bams come from regions of
     the same tumour (i.e. breakpoints are likely shared).
 }
+  \item{segmentation}{
+    character string. per-cell segmentation method: "cbs" (circular
+    binary segmentation, DNAcopy, tuned by segmentation_alpha; default),
+    "pcf" (piecewise constant fitting, copynumber::pcf) or "quickseg"
+    (exact L1 dynamic programming, Schlotmann et al. 2026; uses the
+    quickseg package from https://github.com/Balthasar-eu/Rquickseg when
+    installed, otherwise a built-in R version giving the same segments).
+    Ignored when multipcf=TRUE, except that "quickseg" is not allowed there.
+    Re-running on a res segmented with other settings segments again.
+  }
+  \item{segmentation_penalty}{
+    numeric value. penalty per breakpoint for "pcf" (gamma, in units of
+    the noise variance of the cell; default 20) and "quickseg" (in units of
+    the noise sd of the cell, estimated as the MAD of the differences
+    between neighbouring bins / sqrt(2); default 7). Larger values give
+    fewer breakpoints. The defaults give about as many false breakpoints as
+    CBS at segmentation_alpha=0.01 on simulated single-cell tracks
+    (diagnostics/sim_segmentation_methods.R). With multipcf=TRUE, the gamma
+    of multipcf (default 1/segmentation_alpha).
+  }
 }
 \details{
   

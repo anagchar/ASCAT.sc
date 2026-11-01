@@ -33,9 +33,19 @@ run_sc_sequencing <- function(tumour_bams,
                               sc_exclude_badbins=FALSE,
                               clustering=FALSE,
                               fragments=NULL,
-                              rna_counts=NULL)
+                              rna_counts=NULL,
+                              segmentation=c("cbs","pcf","quickseg"),
+                              segmentation_penalty=NULL)
 {
     checkArguments_scs(c(as.list(environment())))
+    ## per-cell segmentation: "cbs" (DNAcopy, segmentation_alpha), "pcf" (copynumber, gamma=segmentation_penalty in
+    ## units of each cell's noise variance, default 20) or "quickseg" (segmentation_penalty in units of each cell's
+    ## noise sd, default 7), see segmentTrack.
+    ## multipcf=TRUE segments all cells jointly with multipcf instead (gamma=segmentation_penalty, default
+    ## 1/segmentation_alpha).
+    segmentation <- match.arg(segmentation)
+    if(multipcf & segmentation=="quickseg")
+        stop("multipcf=TRUE segments all cells jointly with copynumber::multipcf - use multipcf=FALSE for segmentation=\"quickseg\"")
 
     ## Cell clustering via getCellGroups()
     if (clustering) {
@@ -254,15 +264,22 @@ run_sc_sequencing <- function(tumour_bams,
         lNormals=res$lNormals,
         allchr=allchr,
         segmentation_alpha=segmentation_alpha,
+        segmentation_penalty=segmentation_penalty,
         normalize=normalize,
         svinput=svinput,
         MC.CORES=MC.CORES))
     }
     else
     {
-        if(!any("allTracks.processed"%in%names(res)) | res$binsize!=binsize)
+        ## a res segmented with other settings (older results: CBS) is segmented again. [[ ]] and not $, which
+        ## would match res$segmentation_alpha in older results
+        resegment <- !identical(if(is.null(res[["segmentation"]])) "cbs" else res[["segmentation"]], segmentation) ||
+            !isTRUE(all.equal(res[["segmentation_penalty"]], segmentation_penalty)) ||
+            !isTRUE(all.equal(res$segmentation_alpha, segmentation_alpha)) ||
+            isTRUE(res$multipcf)
+        if(!any("allTracks.processed"%in%names(res)) | res$binsize!=binsize | resegment)
         {
-            print("## smooth Tracks")
+            print(paste0("## smooth Tracks and segment (", segmentation, ")"))
             res$timetoprocessed <- system.time(res$allTracks.processed <- mclapply(1:length(res$allTracks), function(x)
             {
                 getTrackForAll(bamfile=NULL,
@@ -275,7 +292,9 @@ run_sc_sequencing <- function(tumour_bams,
                                sdNormalise=0,
                                SBDRY=SBDRY,
                                svinput=if(is.null(lSVinput)) NULL else lSVinput[[x]],
-                               segmentation_alpha=segmentation_alpha)
+                               segmentation_alpha=segmentation_alpha,
+                               segmentation=segmentation,
+                               segmentation_penalty=segmentation_penalty)
             },mc.cores=MC.CORES))
         }
     }
@@ -323,6 +342,8 @@ run_sc_sequencing <- function(tumour_bams,
                 binsize=binsize,
                 sex=sex,
                 segmentation_alpha=segmentation_alpha,
+                segmentation=segmentation,
+                segmentation_penalty=segmentation_penalty,
                 multipcf=multipcf,
                 lSe=res$nlSe,
                 lGCT=res$nlGCT,
