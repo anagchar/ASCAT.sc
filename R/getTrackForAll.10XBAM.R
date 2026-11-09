@@ -60,6 +60,7 @@ getTrackForAll.10XBAM <- function (bamfile,
                                 barcodes=barcodes,
                                 isSecondaryAlignment = isSecondaryAlignment,
                                 isNotPassingQualityControls = isNotPassingQualityControls,
+                                hp_tag = hp_tag,
                                 isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter),
         mc.cores = mc.cores)
     nCells <- length(lCT[[1]][[1]])

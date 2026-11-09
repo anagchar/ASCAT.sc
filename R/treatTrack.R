@@ -12,6 +12,10 @@ treatTrack <- function(lCTS, window)
                           file=df[starts,"file"],
                           records=sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"records"])),
                           nucleotides=sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"nucleotides"])))
+                          if (all(c("hap1", "hap2") %in% colnames(df))) {
+                            ndf$hap1 <- sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"hap1"]))
+                            ndf$hap2 <- sapply(1:length(starts),function(x) sum(df[starts[x]:ends[x],"hap2"]))
+                          }
         ndf
     })
     names(nlCTS) <- names(lCTS)
