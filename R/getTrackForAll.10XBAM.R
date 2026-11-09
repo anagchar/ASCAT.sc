@@ -15,6 +15,7 @@ getTrackForAll.10XBAM <- function (bamfile,
                                    mapqFilter = 30,
                                    mc.cores = 1,
                                    pcchromosome = 0.8,
+                                   hp_tag=NULL,
                                    barcodes=NULL)
 {
     if (is.null(lSe)) {
@@ -36,6 +37,7 @@ getTrackForAll.10XBAM <- function (bamfile,
                                             isSecondaryAlignment = isSecondaryAlignment,
                                             isNotPassingQualityControls = isNotPassingQualityControls,
                                             isUnmappedQuery = isUnmappedQuery, mapqFilter = mapqFilter,
+                                            hp_tag = hp_tag,
                                             pcchromosome=pcchromosome,
                                             barcodes = NULL)$barcodes
         # Do 10x bamfiles always have the barcode '-' when there is no barcode detected for the read?

@@ -33,6 +33,7 @@ run_sc_sequencing <- function(tumour_bams,
                               sc_exclude_badbins=FALSE,
                               clustering=FALSE,
                               fragments=NULL,
+                              hp_tag=NULL,
                               rna_counts=NULL)
 {
     checkArguments_scs(c(as.list(environment())))
@@ -136,6 +137,7 @@ run_sc_sequencing <- function(tumour_bams,
                                                      doSeg=FALSE,
                                                      # Percent of chromosome bins that need to have a barcode to be kept
                                                      pcchromosome = pcchromosome,
+                                                     hp_tag=hp_tag,
                                                      mc.cores=MC.CORES)
 
                 # Skip BAM files with no detected barcodes
