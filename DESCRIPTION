@@ -7,6 +7,7 @@ Author: Maxime Tarabichi
 Maintainer: <maxime.tarabichi@gmail.com>
 Description: LogR-based copy number calling for shallow coverage (SC) and/or single-cell sequencing (SC) experiments
 License: GNU-GPL V3
+Encoding: UTF-8
 Imports:
     Biostrings,
     GenomicRanges,

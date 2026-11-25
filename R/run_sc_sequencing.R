@@ -34,6 +34,13 @@ run_sc_sequencing <- function(tumour_bams,
                               clustering=FALSE,
                               fragments=NULL,
                               hp_tag=NULL,
+                              hp_allele_specific=TRUE,
+                              hp_block=1,
+                              hp_min_reads=20,
+                              hp_baf_tol=0.05,
+                              hp_logr_tol=0.5,
+                              hp_max_cn=6,
+                              hp_baf_mode="switch",
                               rna_counts=NULL)
 {
     checkArguments_scs(c(as.list(environment())))
@@ -365,6 +372,24 @@ run_sc_sequencing <- function(tumour_bams,
                          projectname=projectname,
                          steps=steps,
                          mc.cores=MC.CORES)
+        names(res$allProfiles_AS) <- names(res$allProfiles)
+    }
+    else if(!is.null(hp_tag) && hp_allele_specific && !is.null(barcodes_10x))
+    {
+        ## no SNP allele counts given: segment BAF from the HP-tag hap1/hap2 counts of each bin
+        print("## get Allele-specific CNA from haplotagged reads (HP tag)")
+        res <- getAS_CNA_HP(res,
+                            purs=purs,
+                            ploidies=ploidies,
+                            outdir=outdir,
+                            projectname=projectname,
+                            block=hp_block,
+                            min_reads=hp_min_reads,
+                            baf_tol=hp_baf_tol,
+                            logr_tol=hp_logr_tol,
+                            max_cn=hp_max_cn,
+                            baf_mode=hp_baf_mode,
+                            mc.cores=MC.CORES)
         names(res$allProfiles_AS) <- names(res$allProfiles)
     }
     if(smooth_sc & any(grepl("_AS",names(res))))
