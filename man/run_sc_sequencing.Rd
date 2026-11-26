@@ -40,7 +40,17 @@ run_sc_sequencing(tumour_bams,
                               probs_filters=.1,
                               sc_filters=FALSE,
                               projectname="project",
-                              multipcf=FALSE)
+                              multipcf=FALSE,
+                              hp_tag=NULL,
+                              hp_allele_specific=TRUE,
+                              hp_min_reads=20,
+                              hp_baf_tol=0.05,
+                              hp_logr_tol=0.5,
+                              hp_max_cn=6,
+                              hp_coseg=TRUE,
+                              hp_coseg_llr=10,
+                              hp_coseg_min_bins=5,
+                              hp_coseg_method="circular")
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -118,11 +128,6 @@ run_sc_sequencing(tumour_bams,
   \item{projectname}{
     character string to use as flag in output file names.
   }
-  \item{steps}{
-    numeric value. for AS-CNA calling only. number of consecutive
-    phased covered heterozygous SNPs to consider for merging in BAF MLE
-    fitting. default is 5 or 3 depending on segment size.
-  }
   \item{smooth_sc}{
     boolean. for single-cell data and allele-specific CNA calling
     only. Smooths the inferred integer values associated to the BAF/logR
@@ -132,6 +137,52 @@ run_sc_sequencing(tumour_bams,
     boolean. use multi track segmentation when bams come from regions of
     the same tumour (i.e. breakpoints are likely shared).
 }
+  \item{hp_tag}{
+    character string or NULL. for haplotagged 10X-style BAMs: name of the
+    haplotype tag (e.g. "HP"). reads tagged HP:i:1 / HP:i:2 are counted
+    per cell per bin (columns hap1 / hap2 of each track).
+  }
+  \item{hp_allele_specific}{
+    boolean. with hp_tag set, call allele-specific copy number from the
+    hap1 / hap2 counts (getAS_CNA_HP) into res$allProfiles_AS.
+  }
+  \item{hp_min_reads}{
+    numeric value. minimum number of haplotagged reads in a segment (and in
+    each piece of a BAF split) to fit it.
+  }
+  \item{hp_baf_tol}{
+    numeric value. a logR-compatible state is accepted if its expected
+    major-haplotype fraction is within hp_baf_tol of the segment's fitted
+    fraction (or its likelihood is close to the best state's).
+  }
+  \item{hp_logr_tol}{
+    numeric value. a state is logR-compatible if its total copy number is
+    within hp_logr_tol of the logR copy number of the segment.
+  }
+  \item{hp_max_cn}{
+    numeric value. largest total copy number considered for the
+    allele-specific states.
+  }
+  \item{hp_coseg}{
+    boolean. after fitting the tag error and overdispersion of a cell on
+    its logR segments, search each logR segment for BAF change-points and
+    call the pieces separately (finds copy-neutral LOH inside a logR-flat
+    segment). pieces have seg_source "BAF" in res$allProfiles_AS.
+  }
+  \item{hp_coseg_llr}{
+    numeric value. minimum log-likelihood gain to accept a BAF
+    change-point. 10 gave about 0.02 false breakpoints per cell in
+    simulations on COLO829BL single cells.
+  }
+  \item{hp_coseg_min_bins}{
+    numeric value. minimum number of bins with haplotagged reads in each
+    piece of a BAF split.
+  }
+  \item{hp_coseg_method}{
+    character string. "circular" (default): best middle piece against the
+    rest of the segment, as circular binary segmentation; "binary": single
+    cuts only (misses changes in the middle of a segment).
+  }
 }
 \details{
   
@@ -159,18 +210,8 @@ run_methylation_data; run_target_sequencing;
 
 
 ## Please see vignette for more examples
-## Setup for AS-CNA calling from bulk shallow coverage WGS in ctDNA (low
+## Setup for CNA calling from bulk shallow coverage WGS in ctDNA (low
 ## purity).
-
-samplenames <- "PD26913b"
-path_to_phases=lapply(samplenames, function(SAMPLENAME)
-paste0("PATHTODIR/",SAMPLENAME,
-        ".chr",c(1:22,"X"),".phased.ref.vcf.gz")) 
-list_ac_counts_paths=lapply(samplenames, function(SAMPLENAME)
-{
-    paste0("PATHTODIR/",SAMPLENAME,
-           ".chr",c(1:22,"X"),".allelefreq.txt")
-})
 
 res <- run_sc_sequencing(tumour_bams=bams,
                          allchr=paste0("chr",c(1:22,"X")),
@@ -185,8 +226,6 @@ res <- run_sc_sequencing(tumour_bams=bams,
                          outdir="./",
                          projectname="ctDNA_test",
                          segmentation_alpha=0.01,
-                         path_to_phases=path_to_phases,
-                         list_ac_counts_paths=list_ac_counts_paths,
                          predict_refit=TRUE,
                          multipcf=FALSE)
 

@@ -67,7 +67,7 @@ Profile Fitting  ←  fitProfile / getProfile
 Solution Validation / ML Refit  ←  predictRefit_all / isGoodSolution
         │
         ▼
-Allele-Specific CNA (optional)  ←  getAS_CNA / getAS_CNA_smoothed
+Allele-Specific CNA (optional)  ←  getAS_CNA_HP / getAS_CNA_smoothed
         │
         ▼
 Output & Visualisation  ←  printResults_all / plotSolution / sc_plotHeat
@@ -124,7 +124,7 @@ The primary pipeline for single-cell and shallow-coverage whole-genome sequencin
 
 10. **Prints all results.** Calls `printResults_all()` to write TSVs, PNGs, and a summary table.
 
-11. **Allele-specific CNA (optional).** If phase information is provided, calls `getAS_CNA()` and `getAS_CNA_smoothed()`.
+11. **Allele-specific CNA (optional).** If `hp_tag` is set (haplotagged BAM) and `hp_allele_specific=TRUE`, calls `getAS_CNA_HP()` on the per-bin hap1/hap2 read counts, then `getAS_CNA_smoothed()` if `smooth_sc=TRUE`.
 
 **Returns:** A named list `res` with the following main slots:
 
@@ -706,20 +706,19 @@ Compiles per-cell copy numbers into a genome-wide matrix.
 
 ## Allele-Specific Copy Numbers
 
-### `getAS_CNA()` — `getAS_CNA.R`
+### `getAS_CNA_HP()` — `getAS_CNA_HP.R`
 
-Derives allele-specific (phased) copy numbers from SNP data.
+Derives allele-specific copy numbers from haplotagged reads (`HP:i:1` / `HP:i:2`).
 
-**Arguments:** `res`, `path_to_phases` (file with phasing information), `list_ac_counts_paths` (paths to allelic count files), `purs`, `ploidies`, `outdir`, `projectname`
+**Arguments:** `res`, `purs`, `ploidies`, `outdir`, `projectname`, plus the `hp_*` options of `run_sc_sequencing()`.
 
 **What it does:**
-1. Reads phasing data: for each heterozygous SNP, records which haplotype (0|1 or 1|0) carries the reference allele.
-2. Reads allelic count files (VCF-like format with reference and alternative allele counts per SNP per cell).
-3. Merges allelic counts with phasing information to assign counts to haplotype A or B.
-4. For each copy number segment, fits a binomial model to estimate the BAF (B-allele frequency).
-5. From total CN and BAF, estimates the number of copies of each allele (nA = major allele, nB = minor allele).
+1. Uses the `hap1` / `hap2` read counts per bin stored in each cell's track (`getCoverageTrack.10XBAM(hp_tag=...)`).
+2. Per bin, the haplotype counts follow a 50/50 mixture of beta-binomials with major-haplotype fraction f and 1 − f (folded per bin, so phase switches between bins cost nothing). For each cell, the tag error ε and the overdispersion ρ are fitted on a grid over the logR segments.
+3. **BAF co-segmentation** (`hp_coseg=TRUE`): each logR segment is searched for BAF change-points with the cell's ρ. The search uses circular binary segmentation (`hp_coseg_method="circular"`): it scores the best middle piece against the rest of the segment. A change-point is accepted if the log-likelihood gain is ≥ `hp_coseg_llr` (default 10) and every piece has ≥ `hp_coseg_min_bins` bins and ≥ `hp_min_reads` reads. The pieces keep the logR copy number of their segment.
+4. For each segment or piece: logR picks the total copy number (within `hp_logr_tol`), and the haplotype counts pick the split (nMaj + nMin), checked against the fitted fraction (`hp_baf_tol`). An imbalanced piece at CN 2 is called 2+0 (copy-neutral LOH).
 
-**Returns:** Updated `res` with `res$allProfiles_AS`, where each profile data.frame has additional columns `nA` (major allele CN) and `nB` (minor allele CN).
+**Returns:** Updated `res` with `res$allProfiles_AS`. Each cell's `nprof.fixed` has `BAF` / `q05` / `q95` (the fitted folded fraction and its 5–95% interval), `BAF_noswitch` (pooled hap1 / (hap1 + hap2)), `nMaj_call` / `nMin_call` / `call_status`, `tag_error` (ε), `rho`, and `seg_source` (`"logR"`, or `"BAF"` for the pieces of a logR segment split at BAF change-points).
 
 ---
 
