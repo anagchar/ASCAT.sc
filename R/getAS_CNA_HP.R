@@ -79,6 +79,11 @@ fitBinom.hap.noswitch <- function(h1, h2, values=seq(0, 1, .001))
 ## call_rule = "baf_first": BAF-compatible states = llh >= best llh - delta; among them the total closest
 ##   to ntot (ties: higher llh); |ntot - total| > logr_tol -> "logR_discordant".
 ## No call -> 1+1 (1+0 on chrX/Y of a male cell).
+## hap_llr (fitted segments): evidence for allelic imbalance from the haplotype counts alone, log-likelihood
+##   of the best folded fraction (BAF_fit) minus that of 0.5 (balanced), same per-bin model and rho. It does not
+##   depend on eps (BAF_fit vs the state's expected fraction is checked by baf_tol). ~0 when the counts cannot
+##   tell (few reads) or the segment is balanced; >= log(20) is used in the plots to call an imbalanced state
+##   (1+0, 2+0, 2+1, ...) "verified", i.e. logR and haplotypes agree, as in hap_stats.R.
 ## ---------------------------------------------------------------------------------------------
 .hp_bbll <- function(k, n, f, rho)
 {
@@ -170,8 +175,13 @@ callAS_HPmodel <- function(segbins, use, ntot, chr, purity=1, ismale=FALSE,
     ## observed major-haplotype fraction per segment under the fitted model (same scale as fbest)
     fgrid <- seq(.5, .999, .001)
     baf <- matrix(NA_real_, length(ntot), 3, dimnames=list(NULL, c("q05", "BAF", "q95")))
+    hap_llr <- rep(NA_real_, length(ntot))
     if(length(idx) > 0)
-        baf[idx, ] <- .hp_fitci(.hp_segsum(.hp_binll(h1, dp, fgrid, rho), rows), fgrid)
+    {
+        SL <- .hp_segsum(.hp_binll(h1, dp, fgrid, rho), rows)
+        baf[idx, ] <- .hp_fitci(SL, fgrid)
+        hap_llr[idx] <- apply(SL, 1, max) - SL[, 1]
+    }
     baf_fit <- baf[, "BAF"]
 
     out <- lapply(seq_along(ntot), function(i)
@@ -207,6 +217,7 @@ callAS_HPmodel <- function(segbins, use, ntot, chr, purity=1, ismale=FALSE,
                         call_status=as.character(g(5)),
                         tag_error=eps,
                         rho=rho,
+                        hap_llr=hap_llr,
                         stringsAsFactors=FALSE)
     list(calls=calls, baf=baf)
 }

@@ -718,7 +718,7 @@ Derives allele-specific copy numbers from haplotagged reads (`HP:i:1` / `HP:i:2`
 3. **BAF co-segmentation** (`hp_coseg=TRUE`): each logR segment is searched for BAF change-points with the cell's ρ. The search uses circular binary segmentation (`hp_coseg_method="circular"`): it scores the best middle piece against the rest of the segment. A change-point is accepted if the log-likelihood gain is ≥ `hp_coseg_llr` (default 10) and every piece has ≥ `hp_coseg_min_bins` bins and ≥ `hp_min_reads` reads. The pieces keep the logR copy number of their segment.
 4. For each segment or piece: logR picks the total copy number (within `hp_logr_tol`), and the haplotype counts pick the split (nMaj + nMin), checked against the fitted fraction (`hp_baf_tol`). An imbalanced piece at CN 2 is called 2+0 (copy-neutral LOH).
 
-**Returns:** Updated `res` with `res$allProfiles_AS`. Each cell's `nprof.fixed` has `BAF` / `q05` / `q95` (the fitted folded fraction and its 5–95% interval), `BAF_noswitch` (pooled hap1 / (hap1 + hap2)), `nMaj_call` / `nMin_call` / `call_status`, `tag_error` (ε), `rho`, and `seg_source` (`"logR"`, or `"BAF"` for the pieces of a logR segment split at BAF change-points).
+**Returns:** Updated `res` with `res$allProfiles_AS`. Each cell's `nprof.fixed` has `BAF` / `q05` / `q95` (the fitted folded fraction and its 5–95% interval), `BAF_noswitch` (pooled hap1 / (hap1 + hap2)), `nMaj_call` / `nMin_call` / `call_status`, `tag_error` (ε), `rho`, `hap_llr` (evidence for allelic imbalance from the haplotype counts alone: log-likelihood of the fitted fraction minus that of 0.5; ≥ log(20) marks an imbalanced call as confirmed by the haplotypes), and `seg_source` (`"logR"`, or `"BAF"` for the pieces of a logR segment split at BAF change-points).
 
 ---
 
